@@ -1,0 +1,39 @@
+# 版本歷史
+
+## v3（目前版本）— 2026-06-22
+
+### 架構調整
+- 新增 `filters/` 篩選設定檔系統：透過 JSON 設定檔定義業務規則篩選，支援 `alwaysApply`（常態啟用）與 `overrideDefaults`（覆蓋模式）兩種行為
+- 新增三份預置篩選設定檔：`default_order`（預設訂單篩選）、`investigation`（排查模式）、`refund_analysis`（退費分析）
+- DAX 生成步驟（Step 4）整合篩選設定檔的輸出結果，自動將業務規則嵌入查詢
+
+### 語意模型處理
+- `chunk_model.py` 新增雙格式自動偵測：同時支援原始 Power BI JSON（`clientDataModel.dataModel`）與簡化語意模型格式
+- 新增 `_find_workspace_root()` 機制：透過往上尋找 `.claude/` 目錄定位工作區根目錄，解除腳本對固定相對路徑的依賴
+
+### API 客戶端
+- `pbi_api_client.py` 新增 JWT 憑證驗證：使用 HS256 簽名機制（`PBI_MASK_KEY`）驗證設定檔完整性，防止憑證遭篡改
+- 新增 JWT 過期時間檢查（`exp` 欄位），過期時提示使用者申請更新
+- CSV 轉換新增相容性處理：支援 API 回傳不含 `columns` 陣列的格式（如 `EVALUATE ROW()` 查詢）
+
+### 跨平台腳本
+- 完整支援 Windows（PowerShell）、macOS（bash）、Linux（bash）三平台的觸發腳本
+- Windows 的 `trigger_pbi_api.ps1` 新增自動尋找工作區根目錄邏輯，確保 `pbi_query/` 輸出路徑正確
+
+---
+
+## v2（歷史版本）
+
+### 主要變更
+- 將語意模型處理邏輯從 Skill 指令中抽離，獨立為 `chunk_model.py` Python 腳本
+- 新增 Power BI REST API 直接執行模式（模式二）
+- 新增 `pbi_api_client.py`，封裝 Azure AD OAuth 取得 token 及 DAX 查詢呼叫
+
+---
+
+## v1（歷史版本）
+
+### 初始版本
+- 基本自然語言轉 DAX 功能
+- 需使用者手動提供表結構資訊
+- 僅支援 DAX 語法輸出（無 API 執行能力）
