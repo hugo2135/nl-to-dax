@@ -84,3 +84,34 @@ git push origin v3.1.0
 - 新增腳本時三個平台（Windows / macOS / Linux）必須同步維護
 - Windows 腳本使用 PowerShell，Unix 腳本使用 bash；共用邏輯下沉至 `scripts/shared/`
 - 路徑分隔符號在 Python 內一律用 `os.path.join()`，不硬寫 `/` 或 `\`
+
+---
+
+## 開發計畫
+
+> 完成的項目直接刪除。版本里程碑記錄請見 `.history`。
+> 申請程式的開發計畫另立獨立專案追蹤。
+
+### 與申請程式的 API 合約
+
+兩側對著此合約各自開發，Skill 開發期間以 mock server 對接：
+
+| 端點 | Header | 回傳 |
+|------|--------|------|
+| `GET /api/credential` | `Authorization: Bearer <PBI_MASK_KEY>` | `{"jwt": "<signed_jwt>"}` （payload 含 `model_version`） |
+| `GET /api/model` | `Authorization: Bearer <PBI_MASK_KEY>` | `relationships.json` + 所有 `table_*.json` |
+
+### v4.0.0 待辦
+
+**Setup / Onboarding**
+- [ ] 建立 `scripts/shared/check_setup.py`：檢查 `PBI_MASK_KEY` 環境變數、credential 存在性與過期時間（`exp`）、本地 `model_version` 與 JWT 內版本是否一致，只回傳 JSON `{"has_mask_key": bool, "has_credential": bool, "credential_expired": bool, "model_outdated": bool}`
+- [ ] 建立 `scripts/shared/fetch_credential.py`：以 `PBI_MASK_KEY` 為 Bearer token 呼叫 `GET /api/credential`，將 JWT 寫入 `config/pbi_credentials.jwt`；API URL 從環境變數 `CREDENTIAL_API_URL` 讀取
+- [ ] 建立 `scripts/shared/fetch_model.py`：以 `PBI_MASK_KEY` 呼叫 `GET /api/model`，將 chunks 寫入 `pbi_query/`；僅在 `model_outdated = true` 時執行
+- [ ] 建立三平台觸發腳本 `trigger_check_setup`（Windows / macOS / Linux）
+
+**SKILL.md 更新**
+- [ ] 加入 Step -1（Pre-check）：呼叫 check_setup，依回傳結果分支——無 `PBI_MASK_KEY` 引導至申請程式註冊；credential 無/過期則執行 fetch_credential；model 版本不一致則執行 fetch_model
+- [ ] 修改 Step 0：移除使用者提供語意模型路徑的依賴，改為直接讀取 `pbi_query/` 本地 chunks
+
+**文件**
+- [ ] 更新 `README.md`：加入 First-time Setup 章節（PBI_MASK_KEY 取得流程、`CREDENTIAL_API_URL` 環境變數設定）
