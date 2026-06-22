@@ -1,0 +1,20 @@
+{
+  "filterId": "default_order",
+  "name": "訂單預設篩選",
+  "description": "一般訂單查詢的基礎篩選：排除非銷售類型的訂單，並排除特定的訂單狀態。",
+  "alwaysApply": true,
+  "overrideDefaults": false,
+  "contextKeywords": [],
+  "filters": [
+    {
+      "description": "排除非銷售類型的訂單",
+      "expression": "NOT(all_orders_tw_zone[order_type] IN {\"\",\"dept_pickup\",\"dept_return\", \"momo\",\"only_deliver_in\",\"only_deliver_out\",\"return_order\",\"stock_transfer\"})",
+      "requiredTable": "all_orders_tw_zone"
+    },
+    {
+      "description": "排除特定的訂單狀態",
+      "expression": "NOT(all_orders_tw_zone[order_status] IN {\"cancelled\",\"dispute\",\"failed\",\"pending\",\"refunded\",\"trash\",\"uncreated\"})",
+      "requiredTable": "all_orders_tw_zone"
+    }
+  ]
+}

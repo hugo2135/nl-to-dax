@@ -1,0 +1,9 @@
+{
+  "filterId": "investigation",
+  "name": "排查模式",
+  "description": "排查異常訂單時使用，覆蓋所有預設篩選，讓查詢能看到完整資料（包含倉庫調撥、退費、取消等通常被過濾掉的訂單）。",
+  "alwaysApply": false,
+  "overrideDefaults": true,
+  "contextKeywords": ["排查", "調查", "異常", "investigate", "debug", "全部", "所有狀態", "不篩選"],
+  "filters": []
+}
