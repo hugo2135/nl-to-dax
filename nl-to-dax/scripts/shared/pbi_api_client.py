@@ -74,19 +74,19 @@ def _decode_jwt(token: str, secret: str) -> dict:
 # ── Credentials ───────────────────────────────────────────────────────────────
 
 def load_credentials(jwt_path: str) -> dict:
-    mask_key = os.environ.get('PBI_MASK_KEY')
-    if not mask_key:
+    server_secret = os.environ.get('SERVER_JWT_SECRET')
+    if not server_secret:
         raise RuntimeError(
-            "環境變數 PBI_MASK_KEY 未設定。\n"
-            "請向供應方取得金鑰後設定：\n"
-            "  Windows: $env:PBI_MASK_KEY = \"your-key\"\n"
-            "  macOS/Linux: export PBI_MASK_KEY=\"your-key\""
+            "環境變數 SERVER_JWT_SECRET 未設定。\n"
+            "請向管理員取得後設定：\n"
+            "  Windows: $env:SERVER_JWT_SECRET = \"your-key\"\n"
+            "  macOS/Linux: export SERVER_JWT_SECRET=\"your-key\""
         )
 
     with open(jwt_path, 'r', encoding='utf-8') as f:
         token = f.read().strip()
 
-    payload = _decode_jwt(token, mask_key)
+    payload = _decode_jwt(token, server_secret)
 
     required = ['tenant_id', 'client_id', 'client_secret', 'workspace_id', 'dataset_id']
     missing = [k for k in required if k not in payload]

@@ -1,10 +1,10 @@
-Natural Language to DAX Skill (v3)
+Natural Language to DAX Skill (v4)
 
 用途
-根據使用者提供的自然語言需求與語意模型描述檔，自動調用程式進行結構拆分，並透過多階段推理，生成適用於 Power BI REST API 的專用 DAX 查詢語法。支援兩種執行模式：只產生 DAX 語法供使用者自行使用，或直接對指定語意模型執行查詢並輸出 CSV 結果。
+根據使用者提供的自然語言需求，透過多階段推理，生成適用於 Power BI REST API 的專用 DAX 查詢語法。語意模型由申請程式集中管理，Skill 啟動時自動同步至本地。支援兩種執行模式：只產生 DAX 語法供使用者自行使用，或直接對指定語意模型執行查詢並輸出 CSV 結果。
 
 輸入
-執行此 Skill 時，使用者必須明確提供以下三個輸入：
+執行此 Skill 時，使用者必須明確提供以下兩個輸入：
 
 1. 執行模式（使用者必須明確宣告，Skill 不得自行推斷）：
    - 模式一「只產生 DAX」：完成 Step 0–4，輸出 DAX 查詢語法，不呼叫 Power BI API。
@@ -12,45 +12,80 @@ Natural Language to DAX Skill (v3)
 
    若使用者未宣告執行模式，必須先詢問確認，待使用者明確回覆後才能繼續。
 
-   選擇模式二的前置條件（執行前確認）：
-   - pbi_credentials.jwt 已取得並放置於 Skill 的 config/ 資料夾（即 .claude/skills/nl-to-dax-v3/config/pbi_credentials.jwt）
-   - 環境變數 PBI_MASK_KEY 已設定（由供應方提供）
-
 2. DAX 需求：以中文或英文描述想查詢的資料內容或計算邏輯。
-
-3. 語意模型描述檔路徑：包含完整資料模型結構的原始 JSON 檔案的完整路徑。
 
 執行步驟
 
-Step 0：資料預處理 (Data Pre-processing)
-收到原始語意模型描述檔後，必須先執行過濾與拆分程式，將生硬的大 JSON 降維並切分為以下兩類輕量化 JSON 檔案：
+Step -1：環境檢查與初始化 (Pre-check)
 
-0.1 偵測作業系統
-判斷當前執行環境的作業系統，以決定呼叫哪一份觸發腳本：
-- Windows → scripts/windows/trigger_chunk_model.ps1
-- macOS   → scripts/macos/trigger_chunk_model.sh
-- Linux   → scripts/linux/trigger_chunk_model.sh
+-1.1 偵測作業系統
+判斷當前執行環境的作業系統：
+- Windows → scripts/windows/trigger_check_setup.ps1
+- macOS   → scripts/macos/trigger_check_setup.sh
+- Linux   → scripts/linux/trigger_check_setup.sh
 
-0.2 定位輸入檔案
-將使用者提供的語意模型描述檔路徑作為 <input_path>。
-
-0.3 執行對應觸發腳本
-根據偵測到的作業系統，執行以下對應指令：
+-1.2 執行環境檢查腳本
+根據作業系統執行對應指令：
 
 Windows（PowerShell）：
-powershell -File "scripts\windows\trigger_chunk_model.ps1" -InputPath "<input_path>"
+powershell -File "scripts\windows\trigger_check_setup.ps1"
 
 macOS（bash）：
-bash scripts/macos/trigger_chunk_model.sh "<input_path>"
+bash scripts/macos/trigger_check_setup.sh
 
 Linux（bash）：
-bash scripts/linux/trigger_chunk_model.sh "<input_path>"
+bash scripts/linux/trigger_check_setup.sh
 
-腳本執行成功後，工作區根目錄下的 pbi_query/ 資料夾下會產生：
+腳本回傳 JSON 格式如下：
+{"has_mask_key": bool, "has_server_secret": bool, "has_credential": bool, "credential_expired": bool, "model_outdated": bool}
+
+-1.3 依回傳結果分支處理
+
+情況一：has_mask_key = false 或 has_server_secret = false
+停止流程，向使用者說明：
+「尚未完成初始設定。請前往申請程式完成註冊，取得 PBI_MASK_KEY 後，依下列方式設定三個環境變數：
+  Windows:
+    $env:PBI_MASK_KEY = "your-key"
+    $env:SERVER_JWT_SECRET = "your-secret"
+    $env:CREDENTIAL_API_URL = "https://..."
+  macOS/Linux:
+    export PBI_MASK_KEY="your-key"
+    export SERVER_JWT_SECRET="your-secret"
+    export CREDENTIAL_API_URL="https://..."
+設定完成後重新執行 Skill。」
+
+情況二：has_credential = false 或 credential_expired = true
+執行以下指令自動取得憑證：
+
+Windows（PowerShell）：
+python "scripts\shared\fetch_credential.py"
+
+macOS / Linux：
+python3 scripts/shared/fetch_credential.py
+
+若執行失敗，回報 stderr 錯誤訊息並停止流程。
+若執行成功，繼續檢查 model_outdated。
+
+情況三：model_outdated = true
+執行以下指令同步語意模型：
+
+Windows（PowerShell）：
+python "scripts\shared\fetch_model.py"
+
+macOS / Linux：
+python3 scripts/shared/fetch_model.py
+
+若執行失敗，回報 stderr 錯誤訊息並停止流程。
+
+情況四：全部為正常狀態
+直接進入 Step 0。
+
+Step 0：載入語意模型 (Load Semantic Model)
+本地 pbi_query/ 資料夾存放由申請程式拆分並同步的語意模型 chunks，結構如下：
 - pbi_query/relationships.json（全域關聯性，整個語意模型僅一份）
 - pbi_query/tables/table_<表名>.json（各資料表結構，每張表一份）
 
-在繼續後續步驟前，請確認以上檔案已正確產生。若產生失敗，需向使用者回報錯誤訊息，停止流程。
+確認以上檔案存在後繼續後續步驟。若 pbi_query/ 不存在或為空，返回 Step -1 強制執行 fetch_model。
 
 Step 0.4：載入並比對篩選設定檔 (Load & Match Filter Profiles)
 掃描 filters/ 資料夾，讀取所有 .json 篩選設定檔。每份設定檔的結構如下：

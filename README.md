@@ -1,6 +1,6 @@
 # nl-to-dax
 
-自然語言轉 DAX 查詢的 Claude Code Skill，針對 Power BI REST API 設計。輸入需求描述與語意模型描述檔，自動完成模型拆分、關聯驗證、篩選套用，輸出可直接執行的 DAX 查詢，或直接呼叫 API 取得 CSV 結果。
+自然語言轉 DAX 查詢的 Claude Code Skill，針對 Power BI REST API 設計。輸入需求描述，自動完成環境初始化、關聯驗證、篩選套用，輸出可直接執行的 DAX 查詢，或直接呼叫 API 取得 CSV 結果。語意模型由申請程式集中管理，首次使用自動同步至本地。
 
 ---
 
@@ -8,7 +8,7 @@
 
 | 功能 | 說明 |
 |------|------|
-| 語意模型拆分 | 將大型 Power BI JSON 描述檔切分為輕量化的表結構與關聯性檔案 |
+| 自動初始化 | 啟動時檢查環境，缺少憑證或模型時自動向申請程式拉取 |
 | 智慧篩選套用 | 依據需求關鍵字自動比對篩選設定檔，套用至 DAX 查詢 |
 | 關聯驗證 | 自動驗證資料表間的關聯有效性，缺口時主動發問 |
 | DAX 生成 | 輸出符合 Power BI REST API 規格的完整查詢語法（含 `EVALUATE`） |
@@ -20,9 +20,35 @@
 
 - Python 3.9+（無需額外安裝第三方套件，僅使用標準函式庫）
 - Claude Code CLI（已安裝並登入）
-- 使用模式二時，額外需要：
-  - `pbi_credentials.jwt`（向供應方申請）
-  - 環境變數 `PBI_MASK_KEY`（向供應方取得）
+- 由管理員提供的三個環境變數（見下方初次設定）
+
+---
+
+## 初次設定（First-time Setup）
+
+首次使用前，需向管理員申請並設定以下三個環境變數：
+
+| 環境變數 | 來源 | 用途 |
+|---------|------|------|
+| `PBI_MASK_KEY` | 申請程式配發（個人專屬） | 向申請程式驗證身份 |
+| `SERVER_JWT_SECRET` | 管理員提供（全局統一） | 解開 Power BI 憑證 JWT |
+| `CREDENTIAL_API_URL` | 管理員提供 | 申請程式的網址 |
+
+**Windows PowerShell：**
+```powershell
+$env:PBI_MASK_KEY = "your-mask-key"
+$env:SERVER_JWT_SECRET = "your-server-secret"
+$env:CREDENTIAL_API_URL = "https://your-credential-app-url"
+```
+
+**macOS / Linux：**
+```bash
+export PBI_MASK_KEY="your-mask-key"
+export SERVER_JWT_SECRET="your-server-secret"
+export CREDENTIAL_API_URL="https://your-credential-app-url"
+```
+
+環境變數設定完成後，第一次執行 Skill 時會自動完成憑證與語意模型的下載，無需手動操作。
 
 ---
 
@@ -33,7 +59,7 @@ nl-to-dax/
 ├── nl-to-dax/                        # Skill 主體目錄
 │   ├── SKILL.md                      # Skill 執行指令（Claude 讀取）
 │   ├── config/
-│   │   ├── pbi_credentials.jwt       # 憑證檔（不納入版本控制）
+│   │   ├── pbi_credentials.jwt       # 憑證檔（自動下載，不納入版本控制）
 │   │   └── pbi_credentials.jwt.example  # 憑證格式說明
 │   ├── filters/                      # DAX 篩選設定檔
 │   │   ├── default_order.json        # 預設訂單篩選（常態啟用）
@@ -41,12 +67,24 @@ nl-to-dax/
 │   │   └── refund_analysis.json      # 退費分析模式（覆蓋預設篩選）
 │   └── scripts/
 │       ├── shared/                   # 跨平台共用 Python 腳本
-│       │   ├── chunk_model.py        # 語意模型拆分器
+│       │   ├── check_setup.py        # 環境檢查（回傳 JSON 布林結果）
+│       │   ├── fetch_credential.py   # 向申請程式拉取憑證 JWT
+│       │   ├── fetch_model.py        # 向申請程式拉取語意模型 chunks
 │       │   └── pbi_api_client.py     # Power BI REST API 客戶端
 │       ├── windows/                  # Windows PowerShell 觸發腳本
 │       ├── macos/                    # macOS bash 觸發腳本
 │       └── linux/                    # Linux bash 觸發腳本
 └── README.md
+```
+
+執行期間自動產生：
+```
+pbi_query/
+├── relationships.json     # 資料表關聯性
+├── tables/
+│   └── table_<表名>.json  # 各資料表結構
+├── model_version.json     # 語意模型版本記錄
+└── query_result.csv       # 模式二的查詢結果
 ```
 
 ---
@@ -59,7 +97,7 @@ nl-to-dax/
 
 ### 執行 Skill
 
-在 Claude Code 中輸入 `/nl-to-dax` 並提供以下三個輸入：
+在 Claude Code 中輸入 `/nl-to-dax` 並提供以下兩個輸入：
 
 1. **執行模式**
    - 模式一：僅輸出 DAX 查詢語法（不呼叫 API）
@@ -70,34 +108,11 @@ nl-to-dax/
    範例：列出各縣市的本月訂單數量與總金額，依縣市排序
    ```
 
-3. **語意模型描述檔路徑**
-   ```
-   範例：C:\Users\user\Documents\semantic_model.json
-   ```
-
-### 設定憑證（模式二專用）
-
-```powershell
-# Windows PowerShell
-$env:PBI_MASK_KEY = "your-secret-key"
-```
-
-```bash
-# macOS / Linux
-export PBI_MASK_KEY="your-secret-key"
-```
-
-將供應方提供的 `pbi_credentials.jwt` 放至：
-
-```
-nl-to-dax/config/pbi_credentials.jwt
-```
-
 ---
 
 ## 篩選設定檔
 
-篩選設定檔（`filters/*.json`）是本 Skill 的核心機制之一，用於在生成 DAX 時自動套用業務規則篩選條件。
+篩選設定檔（`filters/*.json`）用於在生成 DAX 時自動套用業務規則篩選條件。
 
 | 設定檔 | 常態啟用 | 觸發關鍵字 | 說明 |
 |--------|----------|------------|------|
@@ -106,17 +121,6 @@ nl-to-dax/config/pbi_credentials.jwt
 | `refund_analysis.json` | 否 | 退費、退款、refund… | 覆蓋預設篩選，僅顯示退費相關訂單 |
 
 新增篩選設定檔只需在 `filters/` 資料夾中新增符合格式的 JSON 檔，Skill 會在下次執行時自動載入。
-
----
-
-## 輸入格式說明
-
-語意模型描述檔支援兩種格式：
-
-- **原始 Power BI 格式**：包含 `clientDataModel.dataModel` 結構，關聯使用 `fromTableRef/toTableRef`
-- **簡化語意模型格式**：`tables` 與 `relationships` 直接位於根層
-
-`chunk_model.py` 會自動偵測並處理兩種格式。
 
 ---
 
@@ -134,6 +138,7 @@ nl-to-dax/config/pbi_credentials.jwt
 
 ## 注意事項
 
-- `pbi_credentials.jwt` 包含敏感憑證，已加入 `.gitignore`（透過 `.claude` 目錄層級排除），請勿手動納入版本控制
-- Skill 執行時會自動清除上一次的 `pbi_query/` 資料，確保結果不殘留
+- `pbi_credentials.jwt` 包含敏感憑證，已加入 `.gitignore`，請勿手動納入版本控制
+- `PBI_MASK_KEY` 為個人專屬，請勿共用或外洩
+- 語意模型更新時，Skill 會在下次執行時自動偵測版本差異並重新同步
 - 內建日期表（`LocalDateTable_*`、`DateTableTemplate_*`）會自動略過，節省 Token 消耗
