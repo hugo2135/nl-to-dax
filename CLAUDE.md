@@ -94,24 +94,39 @@ git push origin v3.1.0
 
 ### 與申請程式的 API 合約
 
-兩側對著此合約各自開發，Skill 開發期間以 mock server 對接：
+> 規格由申請程式開發者確認（2026-06-23）。Skill 開發期間以 mock server 對接。
+
+**環境變數（由管理員提供）**
+
+| 變數 | 用途 |
+|------|------|
+| `PBI_MASK_KEY` | 個人專屬金鑰，作為 API 請求的 Bearer token |
+| `SERVER_JWT_SECRET` | 申請程式統一的 JWT 簽發密鑰，用於解開 credential JWT |
+| `CREDENTIAL_API_URL` | 申請程式的 base URL |
+
+**API 端點**
 
 | 端點 | Header | 回傳 |
 |------|--------|------|
-| `GET /api/credential` | `Authorization: Bearer <PBI_MASK_KEY>` | `{"jwt": "<signed_jwt>"}` （payload 含 `model_version`） |
-| `GET /api/model` | `Authorization: Bearer <PBI_MASK_KEY>` | `relationships.json` + 所有 `table_*.json` |
+| `GET /api/credential` | `Authorization: Bearer <PBI_MASK_KEY>` | `{"jwt": "<HS256 signed with SERVER_JWT_SECRET>"}` |
+| `GET /api/model` | `Authorization: Bearer <PBI_MASK_KEY>` | `{"model_version": N, "relationships": {...}, "tables": [...]}` |
+
+**JWT Payload 欄位**：`tenant_id`, `client_id`, `client_secret`, `workspace_id`, `dataset_id`, `model_version`, `iss`, `iat`, `exp`
 
 ### v4.0.0 待辦
 
+**現有程式碼修改**
+- [ ] 修改 `scripts/shared/pbi_api_client.py`：JWT 驗簽金鑰從 `PBI_MASK_KEY` 改為 `SERVER_JWT_SECRET`
+
 **Setup / Onboarding**
-- [ ] 建立 `scripts/shared/check_setup.py`：檢查 `PBI_MASK_KEY` 環境變數、credential 存在性與過期時間（`exp`）、本地 `model_version` 與 JWT 內版本是否一致，只回傳 JSON `{"has_mask_key": bool, "has_credential": bool, "credential_expired": bool, "model_outdated": bool}`
-- [ ] 建立 `scripts/shared/fetch_credential.py`：以 `PBI_MASK_KEY` 為 Bearer token 呼叫 `GET /api/credential`，將 JWT 寫入 `config/pbi_credentials.jwt`；API URL 從環境變數 `CREDENTIAL_API_URL` 讀取
+- [ ] 建立 `scripts/shared/check_setup.py`：檢查 `PBI_MASK_KEY`、`SERVER_JWT_SECRET` 環境變數，credential 存在性與過期時間（`exp`），本地 `model_version` 與 JWT 內版本是否一致，只回傳 JSON `{"has_mask_key": bool, "has_server_secret": bool, "has_credential": bool, "credential_expired": bool, "model_outdated": bool}`
+- [ ] 建立 `scripts/shared/fetch_credential.py`：以 `PBI_MASK_KEY` 呼叫 `GET /api/credential`，將 JWT 寫入 `config/pbi_credentials.jwt`；使用標準函式庫 `urllib`，不用 `requests`
 - [ ] 建立 `scripts/shared/fetch_model.py`：以 `PBI_MASK_KEY` 呼叫 `GET /api/model`，將 chunks 寫入 `pbi_query/`；僅在 `model_outdated = true` 時執行
 - [ ] 建立三平台觸發腳本 `trigger_check_setup`（Windows / macOS / Linux）
 
 **SKILL.md 更新**
-- [ ] 加入 Step -1（Pre-check）：呼叫 check_setup，依回傳結果分支——無 `PBI_MASK_KEY` 引導至申請程式註冊；credential 無/過期則執行 fetch_credential；model 版本不一致則執行 fetch_model
+- [ ] 加入 Step -1（Pre-check）：呼叫 check_setup，依回傳結果分支——缺環境變數引導設定；credential 無/過期則執行 fetch_credential；model 版本不一致則執行 fetch_model
 - [ ] 修改 Step 0：移除使用者提供語意模型路徑的依賴，改為直接讀取 `pbi_query/` 本地 chunks
 
 **文件**
-- [ ] 更新 `README.md`：加入 First-time Setup 章節（PBI_MASK_KEY 取得流程、`CREDENTIAL_API_URL` 環境變數設定）
+- [ ] 更新 `README.md`：加入 First-time Setup 章節（三個環境變數的取得與設定方式）
