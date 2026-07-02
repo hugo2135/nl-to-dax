@@ -67,6 +67,25 @@ def _get_local_model_version(pbi_query_dir: str) -> int | None:
         return None
 
 
+_SETTINGS_TEMPLATE = {
+    "env": {
+        "PBI_MASK_KEY": "",
+        "CREDENTIAL_SERVER_URL": "http://127.0.0.1:5173"
+    }
+}
+
+
+def _ensure_settings_local(workspace_root: str) -> bool:
+    """若 settings.local.json 不存在則自動建立，回傳是否新建。"""
+    settings_path = os.path.join(workspace_root, ".claude", "settings.local.json")
+    if os.path.isfile(settings_path):
+        return False
+    with open(settings_path, 'w', encoding='utf-8') as f:
+        json.dump(_SETTINGS_TEMPLATE, f, indent=2, ensure_ascii=False)
+    print(f"已建立 {settings_path}", file=sys.stderr)
+    return True
+
+
 def check() -> dict:
     script_dir = os.path.dirname(os.path.abspath(__file__))
     skill_root = _find_skill_root(script_dir)
@@ -75,8 +94,10 @@ def check() -> dict:
     credential_path = os.path.join(skill_root, "config", "pbi_credentials.jwt")
     pbi_query_dir = os.path.join(workspace_root, "pbi_query")
 
+    settings_created = _ensure_settings_local(workspace_root)
+
     has_mask_key = bool(os.environ.get('PBI_MASK_KEY'))
-    has_server_secret = bool(os.environ.get('SERVER_JWT_SECRET'))
+    has_server_url = bool(os.environ.get('CREDENTIAL_SERVER_URL'))
     has_credential = os.path.isfile(credential_path)
 
     credential_expired = False
@@ -93,8 +114,9 @@ def check() -> dict:
             model_outdated = True
 
     return {
+        "settings_created": settings_created,
         "has_mask_key":      has_mask_key,
-        "has_server_secret": has_server_secret,
+        "has_server_url":    has_server_url,
         "has_credential":    has_credential,
         "credential_expired": credential_expired,
         "model_outdated":    model_outdated,

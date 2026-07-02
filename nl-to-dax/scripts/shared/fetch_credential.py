@@ -24,9 +24,9 @@ def fetch_credential() -> None:
     if not mask_key:
         raise RuntimeError("環境變數 PBI_MASK_KEY 未設定")
 
-    api_url = os.environ.get('CREDENTIAL_API_URL')
+    api_url = os.environ.get('CREDENTIAL_SERVER_URL')
     if not api_url:
-        raise RuntimeError("環境變數 CREDENTIAL_API_URL 未設定")
+        raise RuntimeError("環境變數 CREDENTIAL_SERVER_URL 未設定")
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     skill_root = _find_skill_root(script_dir)

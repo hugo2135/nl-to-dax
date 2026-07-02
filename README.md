@@ -20,35 +20,16 @@
 
 - Python 3.9+（無需額外安裝第三方套件，僅使用標準函式庫）
 - Claude Code CLI（已安裝並登入）
-- 由管理員提供的三個環境變數（見下方初次設定）
 
 ---
 
 ## 初次設定（First-time Setup）
 
-首次使用前，需向管理員申請並設定以下三個環境變數：
+第一次執行 `/nl-to-dax` 時，Skill 會自動建立 `.claude/settings.local.json` 並引導完成設定，步驟如下：
 
-| 環境變數 | 來源 | 用途 |
-|---------|------|------|
-| `PBI_MASK_KEY` | 申請程式配發（個人專屬） | 向申請程式驗證身份 |
-| `SERVER_JWT_SECRET` | 管理員提供（全局統一） | 解開 Power BI 憑證 JWT |
-| `CREDENTIAL_API_URL` | 管理員提供 | 申請程式的網址 |
-
-**Windows PowerShell：**
-```powershell
-$env:PBI_MASK_KEY = "your-mask-key"
-$env:SERVER_JWT_SECRET = "your-server-secret"
-$env:CREDENTIAL_API_URL = "https://your-credential-app-url"
-```
-
-**macOS / Linux：**
-```bash
-export PBI_MASK_KEY="your-mask-key"
-export SERVER_JWT_SECRET="your-server-secret"
-export CREDENTIAL_API_URL="https://your-credential-app-url"
-```
-
-環境變數設定完成後，第一次執行 Skill 時會自動完成憑證與語意模型的下載，無需手動操作。
+1. **取得 PBI_MASK_KEY**：Skill 會提示前往申請程式網址完成註冊，取得個人專屬金鑰
+2. **填入金鑰**：可直接將金鑰提供給 Claude（由 Claude 代為寫入），或自行開啟 `.claude/settings.local.json` 填入
+3. **重新執行**：Skill 自動完成憑證與語意模型的下載，無需其他手動操作
 
 ---
 
@@ -97,16 +78,14 @@ pbi_query/
 
 ### 執行 Skill
 
-在 Claude Code 中輸入 `/nl-to-dax` 並提供以下兩個輸入：
+在 Claude Code 中輸入 `/nl-to-dax`，Skill 完成環境初始化後會詢問需求。
 
-1. **執行模式**
-   - 模式一：僅輸出 DAX 查詢語法（不呼叫 API）
-   - 模式二：生成並直接執行查詢，輸出 CSV 結果
+**DAX 需求**（中英文皆可）：
+```
+範例：列出各縣市的本月訂單數量與總金額，依縣市排序
+```
 
-2. **DAX 需求**（中英文皆可）
-   ```
-   範例：列出各縣市的本月訂單數量與總金額，依縣市排序
-   ```
+Skill 會自動生成 DAX 查詢、呼叫 Power BI API 並輸出 CSV 結果。
 
 ---
 
@@ -126,13 +105,11 @@ pbi_query/
 
 ## 輸出結果
 
-**模式一**輸出：
+每次執行輸出以下三項：
+
 - DAX 查詢語法（程式碼片段）
 - 使用到的欄位與量值清單
-
-**模式二**額外輸出：
-- `pbi_query/query_result.csv`（查詢結果）
-- 執行摘要（筆數回報）
+- `pbi_query/query_result.csv`（查詢結果）及執行摘要（筆數回報）
 
 ---
 

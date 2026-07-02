@@ -1,91 +1,105 @@
 Natural Language to DAX Skill (v4)
 
 用途
-根據使用者提供的自然語言需求，透過多階段推理，生成適用於 Power BI REST API 的專用 DAX 查詢語法。語意模型由申請程式集中管理，Skill 啟動時自動同步至本地。支援兩種執行模式：只產生 DAX 語法供使用者自行使用，或直接對指定語意模型執行查詢並輸出 CSV 結果。
+根據使用者提供的自然語言需求，透過多階段推理，生成適用於 Power BI REST API 的專用 DAX 查詢語法，並自動呼叫 Power BI REST API 執行查詢、輸出 CSV 結果。語意模型由申請程式集中管理，Skill 啟動時自動同步至本地。
 
 輸入
-執行此 Skill 時，使用者必須明確提供以下兩個輸入：
+執行此 Skill 時，使用者需提供：
 
-1. 執行模式（使用者必須明確宣告，Skill 不得自行推斷）：
-   - 模式一「只產生 DAX」：完成 Step 0–4，輸出 DAX 查詢語法，不呼叫 Power BI API。
-   - 模式二「產生並執行查詢」：完成 Step 0–5，自動呼叫 Power BI REST API 並輸出 CSV。
-
-   若使用者未宣告執行模式，必須先詢問確認，待使用者明確回覆後才能繼續。
-
-2. DAX 需求：以中文或英文描述想查詢的資料內容或計算邏輯。
+DAX 需求：以中文或英文描述想查詢的資料內容或計算邏輯。
 
 執行步驟
 
 Step -1：環境檢查與初始化 (Pre-check)
 
+-1.0 定位根目錄
+此 SKILL.md 所在的目錄即為 Skill 根目錄，以下稱 <SKILL_ROOT>。
+<SKILL_ROOT> 往上兩層（即包含 .claude/ 資料夾的目錄）為工作區根目錄，以下稱 <WORKSPACE_ROOT>。
+所有腳本與檔案路徑皆使用絕對路徑。執行任何指令前，必須先確認兩個根目錄的實際路徑。
+
 -1.1 偵測作業系統
 判斷當前執行環境的作業系統：
-- Windows → scripts/windows/trigger_check_setup.ps1
-- macOS   → scripts/macos/trigger_check_setup.sh
-- Linux   → scripts/linux/trigger_check_setup.sh
+- Windows → <SKILL_ROOT>\scripts\windows\trigger_check_setup.ps1
+- macOS   → <SKILL_ROOT>/scripts/macos/trigger_check_setup.sh
+- Linux   → <SKILL_ROOT>/scripts/linux/trigger_check_setup.sh
 
 -1.2 執行環境檢查腳本
-根據作業系統執行對應指令：
+根據作業系統執行對應指令（將 <SKILL_ROOT> 替換為實際路徑）：
 
 Windows（PowerShell）：
-powershell -File "scripts\windows\trigger_check_setup.ps1"
+powershell -File "<SKILL_ROOT>\scripts\windows\trigger_check_setup.ps1"
 
 macOS（bash）：
-bash scripts/macos/trigger_check_setup.sh
+bash "<SKILL_ROOT>/scripts/macos/trigger_check_setup.sh"
 
 Linux（bash）：
-bash scripts/linux/trigger_check_setup.sh
+bash "<SKILL_ROOT>/scripts/linux/trigger_check_setup.sh"
 
 腳本回傳 JSON 格式如下：
-{"has_mask_key": bool, "has_server_secret": bool, "has_credential": bool, "credential_expired": bool, "model_outdated": bool}
+{"settings_created": bool, "has_mask_key": bool, "has_server_url": bool, "has_credential": bool, "credential_expired": bool, "model_outdated": bool}
 
--1.3 依回傳結果分支處理
+-1.3 依回傳結果分支處理（依序判斷，命中即停）
 
-情況一：has_mask_key = false 或 has_server_secret = false
-停止流程，向使用者說明：
-「尚未完成初始設定。請前往申請程式完成註冊，取得 PBI_MASK_KEY 後，依下列方式設定三個環境變數：
-  Windows:
-    $env:PBI_MASK_KEY = "your-key"
-    $env:SERVER_JWT_SECRET = "your-secret"
-    $env:CREDENTIAL_API_URL = "https://..."
-  macOS/Linux:
-    export PBI_MASK_KEY="your-key"
-    export SERVER_JWT_SECRET="your-secret"
-    export CREDENTIAL_API_URL="https://..."
-設定完成後重新執行 Skill。」
+情況一：settings_created = true
+腳本剛建立了 settings.local.json。向使用者說明：
+「已自動建立設定檔。您需要先申請個人金鑰（PBI_MASK_KEY）才能繼續。
+請前往以下網址完成申請：{CREDENTIAL_SERVER_URL}
+取得金鑰後，您可以直接將金鑰提供給我，我幫您寫入設定檔；或是自行開啟 .claude/settings.local.json 填入 PBI_MASK_KEY 欄位。」
+等待使用者回應後：
+- 若使用者提供金鑰 → 使用 Edit 工具將金鑰寫入 <WORKSPACE_ROOT>/.claude/settings.local.json 的 PBI_MASK_KEY 欄位，完成後告知使用者重新執行 /nl-to-dax
+- 若使用者選擇自行設定 → 告知其設定完成後重新執行 /nl-to-dax
 
-情況二：has_credential = false 或 credential_expired = true
-執行以下指令自動取得憑證：
+情況二：settings_created = false 且 has_mask_key = false
+settings.local.json 存在但 PBI_MASK_KEY 為空。向使用者說明：
+「您尚未設定個人金鑰（PBI_MASK_KEY）。若尚未申請，請前往以下網址取得：
+{CREDENTIAL_SERVER_URL}
+取得金鑰後，您可以直接將金鑰提供給我，我幫您寫入設定檔；或是自行開啟 .claude/settings.local.json 填入 PBI_MASK_KEY 欄位。」
+等待使用者回應後：
+- 若使用者提供金鑰 → 使用 Edit 工具將金鑰寫入 <WORKSPACE_ROOT>/.claude/settings.local.json 的 PBI_MASK_KEY 欄位，完成後告知使用者重新執行 /nl-to-dax
+- 若使用者選擇自行設定 → 告知其設定完成後重新執行 /nl-to-dax
 
-Windows（PowerShell）：
-python "scripts\shared\fetch_credential.py"
-
-macOS / Linux：
-python3 scripts/shared/fetch_credential.py
-
-若執行失敗，回報 stderr 錯誤訊息並停止流程。
-若執行成功，繼續檢查 model_outdated。
-
-情況三：model_outdated = true
-執行以下指令同步語意模型：
+情況三：settings_created = false 且 has_mask_key = true 且 (has_credential = false 或 credential_expired = true)
+需要取得或更新憑證。執行以下指令：
 
 Windows（PowerShell）：
-python "scripts\shared\fetch_model.py"
+python "<SKILL_ROOT>\scripts\shared\fetch_credential.py"
 
 macOS / Linux：
-python3 scripts/shared/fetch_model.py
+python3 "<SKILL_ROOT>/scripts/shared/fetch_credential.py"
 
 若執行失敗，回報 stderr 錯誤訊息並停止流程。
+若執行成功，繼續執行以下指令同步語意模型（憑證剛更新，model_outdated 狀態需一併處理）：
 
-情況四：全部為正常狀態
-直接進入 Step 0。
+Windows（PowerShell）：
+python "<SKILL_ROOT>\scripts\shared\fetch_model.py"
+
+macOS / Linux：
+python3 "<SKILL_ROOT>/scripts/shared/fetch_model.py"
+
+若執行失敗，回報 stderr 錯誤訊息並停止流程。
+若執行成功，詢問使用者：「您想查詢什麼？」
+
+情況四：settings_created = false 且 has_mask_key = true 且 has_credential = true 且 credential_expired = false 且 model_outdated = true
+語意模型需要更新。執行以下指令：
+
+Windows（PowerShell）：
+python "<SKILL_ROOT>\scripts\shared\fetch_model.py"
+
+macOS / Linux：
+python3 "<SKILL_ROOT>/scripts/shared/fetch_model.py"
+
+若執行失敗，回報 stderr 錯誤訊息並停止流程。
+若執行成功，詢問使用者：「您想查詢什麼？」
+
+情況五：settings_created = false 且 has_mask_key = true 且 has_credential = true 且 credential_expired = false 且 model_outdated = false
+所有條件正常。直接詢問使用者：「您想查詢什麼？」，待使用者提供需求後繼續進入 Step 0。
 
 Step 0：載入語意模型 (Load Semantic Model)
 本地 pbi_query/ 資料夾存放由申請程式拆分並同步的語意模型 chunks，結構如下：
 - pbi_query/relationships.json（全域關聯性，整個語意模型僅一份）
 - pbi_query/tables/table_<表名>.json（各資料表結構，每張表一份）
 
-確認以上檔案存在後繼續後續步驟。若 pbi_query/ 不存在或為空，返回 Step -1 強制執行 fetch_model。
+確認以上檔案存在後繼續後續步驟。若 pbi_query/ 不存在或為空，直接執行 fetch_model.py（參考 -1.3 情況四的指令），成功後繼續。
 
 Step 0.4：載入並比對篩選設定檔 (Load & Match Filter Profiles)
 掃描 filters/ 資料夾，讀取所有 .json 篩選設定檔。每份設定檔的結構如下：
@@ -201,22 +215,21 @@ Step 4：生成 Power BI REST API 專用 DAX 查詢
 專注於 DAX 代碼本身的正確性與效能。
 
 Step 5：執行 Power BI REST API 查詢
-（僅在使用者宣告「模式二：產生並執行查詢」時執行此步驟）
 
 5.1 將 DAX 查詢寫入暫存檔
-使用 Write 工具，將 Step 4 產生的完整 DAX 查詢語法（不含程式碼區塊標記）寫入 pbi_query/dax_query.txt。
+使用 Write 工具，將 Step 4 產生的完整 DAX 查詢語法（不含程式碼區塊標記）寫入 <WORKSPACE_ROOT>/pbi_query/dax_query.txt（使用絕對路徑）。
 
 5.2 執行對應觸發腳本
-沿用 Step 0.1 偵測到的作業系統，執行以下對應指令：
+沿用 Step -1.1 偵測到的作業系統，執行以下對應指令：
 
 Windows（PowerShell）：
-powershell -File "scripts\windows\trigger_pbi_api.ps1" -DaxQueryFile "pbi_query\dax_query.txt"
+powershell -File "<SKILL_ROOT>\scripts\windows\trigger_pbi_api.ps1" -DaxQueryFile "<WORKSPACE_ROOT>\pbi_query\dax_query.txt"
 
 macOS（bash）：
-bash scripts/macos/trigger_pbi_api.sh "" "pbi_query/dax_query.txt"
+bash "<SKILL_ROOT>/scripts/macos/trigger_pbi_api.sh" "" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt"
 
 Linux（bash）：
-bash scripts/linux/trigger_pbi_api.sh "" "pbi_query/dax_query.txt"
+bash "<SKILL_ROOT>/scripts/linux/trigger_pbi_api.sh" "" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt"
 
 腳本執行成功後，會產生 pbi_query/query_result.csv。
 腳本的標準輸出（stdout）會印出一行 JSON 摘要，格式如下：
@@ -231,9 +244,7 @@ bash scripts/linux/trigger_pbi_api.sh "" "pbi_query/dax_query.txt"
 若腳本執行失敗，將 stderr 的錯誤訊息完整回報給使用者後停止。
 
 輸出格式限制
-嚴禁輸出任何視覺效果建議、圖表軸說明、或多餘的函數教學。依執行模式輸出如下：
-
-模式一（只產生 DAX）輸出以下兩件事：
+嚴禁輸出任何視覺效果建議、圖表軸說明、或多餘的函數教學。輸出以下內容：
 
 1. DAX 查詢
 程式碼片段
@@ -251,8 +262,6 @@ EVALUATE
 資料表名稱 2
 
 欄位：Column_Name3
-
-模式二（產生並執行查詢）在模式一的基礎上，額外輸出：
 
 3. 執行結果摘要
 查詢成功，共 N 筆資料，結果已輸出至 pbi_query/query_result.csv。

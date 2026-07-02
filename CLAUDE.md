@@ -77,7 +77,7 @@ git push origin v3.1.0
 ### Power BI REST API 使用政策
 - **不實作 retry**：API 失敗時完整回報 HTTP status code 與 response body，由使用者判斷後續行動
 - **憑證不明文存放**：所有連線資訊透過 JWT + `PBI_MASK_KEY` 驗證，設定檔本身不可讀
-- **執行前必須驗證 JWT 簽名與過期時間**，驗證失敗立即停止，不繼續呼叫 API
+- **執行前必須驗證 JWT 過期時間**（`exp` 欄位），過期立即停止；Skill 端不驗簽名，僅 base64 decode payload
 - **輸出 CSV 前先確保目錄存在**（`os.makedirs(..., exist_ok=True)`），避免路徑不存在導致靜默失敗
 
 ### 跨平台相容性
@@ -94,25 +94,42 @@ git push origin v3.1.0
 
 ### 與申請程式的 API 合約
 
-> 規格由申請程式開發者確認（2026-06-23）。Skill 開發期間以 mock server 對接。
+> 初版規格確認（2026-06-23）。實作指引更新，SERVER_JWT_SECRET 移除（2026-06-24）。Skill 開發期間以 mock server 對接。
 
-**環境變數（由管理員提供）**
+**環境變數（設定至 `.claude/settings.local.json` 的 `env` 區塊，不使用系統環境變數）**
 
 | 變數 | 用途 |
 |------|------|
-| `PBI_MASK_KEY` | 個人專屬金鑰，作為 API 請求的 Bearer token |
-| `SERVER_JWT_SECRET` | 申請程式統一的 JWT 簽發密鑰，用於解開 credential JWT |
-| `CREDENTIAL_API_URL` | 申請程式的 base URL |
+| `PBI_MASK_KEY` | 個人專屬金鑰，作為 API 請求的 Bearer token；使用者從管理後台領取 |
+| `CREDENTIAL_SERVER_URL` | 申請程式的 base URL；正式 URL 待部署後填入 |
+
+> `SERVER_JWT_SECRET` 已移除：Skill 端不驗 JWT 簽名，僅 base64 decode payload 取用欄位。
+> 無需安裝任何第三方套件，`urllib` 標準函式庫即可完成所有 HTTP 呼叫（包含 Azure AD OAuth）。
+
+**Skill 啟動流程（每次對話開始時執行）**
+
+1. `GET /api/credential` → base64 decode JWT payload，取得連線資訊，快取至記憶體（提前 5 分鐘更新）
+2. `GET /api/model` → 比對 `model_version`，若與快取版本相同則略過下載
 
 **API 端點**
 
 | 端點 | Header | 回傳 |
 |------|--------|------|
-| `GET /api/credential` | `Authorization: Bearer <PBI_MASK_KEY>` | `{"jwt": "<HS256 signed with SERVER_JWT_SECRET>"}` |
+| `GET /api/credential` | `Authorization: Bearer <PBI_MASK_KEY>` | `{"jwt": "<HS256 JWT>"}` |
 | `GET /api/model` | `Authorization: Bearer <PBI_MASK_KEY>` | `{"model_version": N, "relationships": {...}, "tables": [...]}` |
 
 **JWT Payload 欄位**：`tenant_id`, `client_id`, `client_secret`, `workspace_id`, `dataset_id`, `model_version`, `iss`, `iat`, `exp`
 
+**快取策略**
+
+| 資料 | 快取條件 | 更新時機 |
+|------|---------|---------|
+| credential | JWT 未過期（提前 5 分鐘更新） | 每次呼叫自動檢查 |
+| model | `model_version` 未變動 | 管理員上傳新模型後自動失效 |
+
 ### v4.0.0 待辦
 
-> 目前無待辦項目。
+#### 重構：`pbi_api_client.py` 對齊新 API 合約
+
+- 移除 `load_credentials()`（讀本地 JWT 檔）及 `SERVER_JWT_SECRET` 相關邏輯
+- 改為呼叫 `GET /api/credential` 動態取得憑證，以 base64 decode payload 取用欄位（不驗簽名）
