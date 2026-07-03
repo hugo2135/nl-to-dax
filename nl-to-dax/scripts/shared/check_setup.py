@@ -70,7 +70,7 @@ def _get_local_model_version(pbi_query_dir: str) -> int | None:
 _SETTINGS_TEMPLATE = {
     "env": {
         "PBI_MASK_KEY": "",
-        "CREDENTIAL_SERVER_URL": "http://127.0.0.1:5173"
+        "CREDENTIAL_SERVER_URL": "http://localhost:5173/"
     }
 }
 

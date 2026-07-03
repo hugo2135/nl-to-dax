@@ -44,7 +44,7 @@ bash "<SKILL_ROOT>/scripts/linux/trigger_check_setup.sh"
 腳本剛建立了 settings.local.json。向使用者說明：
 「已自動建立設定檔。在開始使用前，您需要完成以下申請流程取得個人金鑰（PBI_MASK_KEY）：
 
-1. 開啟服務網址：{CREDENTIAL_SERVER_URL}
+1. 開啟服務網址：[{CREDENTIAL_SERVER_URL}]({CREDENTIAL_SERVER_URL})
 2. 點選「立即註冊」，填入 Email 與密碼後申請帳號
 3. 等待管理員開通帳號（開通後會可登入）
 4. 登入後進入個人頁面，點選「領取 PBI_MASK_KEY」
@@ -57,7 +57,7 @@ bash "<SKILL_ROOT>/scripts/linux/trigger_check_setup.sh"
 
 情況二：settings_created = false 且 has_mask_key = false
 settings.local.json 存在但 PBI_MASK_KEY 為空。向使用者說明：
-「PBI_MASK_KEY 尚未填入。若尚未申請，請前往 {CREDENTIAL_SERVER_URL} 完成以下步驟：
+「PBI_MASK_KEY 尚未填入。若尚未申請，請前往 [{CREDENTIAL_SERVER_URL}]({CREDENTIAL_SERVER_URL}) 完成以下步驟：
 
 1. 點選「立即註冊」申請帳號，等待管理員開通
 2. 開通後登入，進入個人頁面點選「領取 PBI_MASK_KEY」
