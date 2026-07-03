@@ -42,18 +42,28 @@ bash "<SKILL_ROOT>/scripts/linux/trigger_check_setup.sh"
 
 情況一：settings_created = true
 腳本剛建立了 settings.local.json。向使用者說明：
-「已自動建立設定檔。您需要先申請個人金鑰（PBI_MASK_KEY）才能繼續。
-請前往以下網址完成申請：{CREDENTIAL_SERVER_URL}
-取得金鑰後，您可以直接將金鑰提供給我，我幫您寫入設定檔；或是自行開啟 .claude/settings.local.json 填入 PBI_MASK_KEY 欄位。」
+「已自動建立設定檔。在開始使用前，您需要完成以下申請流程取得個人金鑰（PBI_MASK_KEY）：
+
+1. 開啟服務網址：{CREDENTIAL_SERVER_URL}
+2. 點選「立即註冊」，填入 Email 與密碼後申請帳號
+3. 等待管理員開通帳號（開通後會可登入）
+4. 登入後進入個人頁面，點選「領取 PBI_MASK_KEY」
+5. 金鑰只顯示一次，請立即複製並妥善保存
+
+取得金鑰後，您可以直接將金鑰提供給我，我幫您填入設定檔；或自行開啟 .claude/settings.local.json 填入 PBI_MASK_KEY 欄位。」
 等待使用者回應後：
 - 若使用者提供金鑰 → 使用 Edit 工具將金鑰寫入 <WORKSPACE_ROOT>/.claude/settings.local.json 的 PBI_MASK_KEY 欄位，完成後告知使用者重新執行 /nl-to-dax
 - 若使用者選擇自行設定 → 告知其設定完成後重新執行 /nl-to-dax
 
 情況二：settings_created = false 且 has_mask_key = false
 settings.local.json 存在但 PBI_MASK_KEY 為空。向使用者說明：
-「您尚未設定個人金鑰（PBI_MASK_KEY）。若尚未申請，請前往以下網址取得：
-{CREDENTIAL_SERVER_URL}
-取得金鑰後，您可以直接將金鑰提供給我，我幫您寫入設定檔；或是自行開啟 .claude/settings.local.json 填入 PBI_MASK_KEY 欄位。」
+「PBI_MASK_KEY 尚未填入。若尚未申請，請前往 {CREDENTIAL_SERVER_URL} 完成以下步驟：
+
+1. 點選「立即註冊」申請帳號，等待管理員開通
+2. 開通後登入，進入個人頁面點選「領取 PBI_MASK_KEY」
+3. 金鑰只顯示一次，請立即複製
+
+已有金鑰者請直接提供，我幫您填入設定檔；或自行開啟 .claude/settings.local.json 填入 PBI_MASK_KEY 欄位。」
 等待使用者回應後：
 - 若使用者提供金鑰 → 使用 Edit 工具將金鑰寫入 <WORKSPACE_ROOT>/.claude/settings.local.json 的 PBI_MASK_KEY 欄位，完成後告知使用者重新執行 /nl-to-dax
 - 若使用者選擇自行設定 → 告知其設定完成後重新執行 /nl-to-dax
