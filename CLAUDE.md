@@ -108,28 +108,46 @@ git push origin v3.1.0
 
 **Skill 啟動流程（每次對話開始時執行）**
 
-1. `GET /api/credential` → base64 decode JWT payload，取得連線資訊，快取至記憶體（提前 5 分鐘更新）
-2. `GET /api/model` → 比對 `model_version`，若與快取版本相同則略過下載
+1. `GET /api/models` → 取得所有可用模型清單（含 model data）；比對 `model_version`，版本未變則沿用本地快取
+2. 若使用者有多個可用模型，詢問要查詢哪個；單一模型則自動選定
+3. `GET /api/credential?pbi_config_id=<id>` → 取得選定模型的 Azure AD 憑證 JWT
 
 **API 端點**
 
-| 端點 | Header | 回傳 |
+| 端點 | Header | 說明 |
 |------|--------|------|
-| `GET /api/credential` | `Authorization: Bearer <PBI_MASK_KEY>` | `{"jwt": "<HS256 JWT>"}` |
-| `GET /api/model` | `Authorization: Bearer <PBI_MASK_KEY>` | `{"model_version": N, "relationships": {...}, "tables": [...]}` |
+| `GET /api/models` | `Authorization: Bearer <PBI_MASK_KEY>` | 回傳所有可用模型（含 relationships、tables、model_version） |
+| `GET /api/credential?pbi_config_id=<id>` | `Authorization: Bearer <PBI_MASK_KEY>` | 回傳指定模型的憑證 JWT |
 
-**JWT Payload 欄位**：`tenant_id`, `client_id`, `client_secret`, `workspace_id`, `dataset_id`, `model_version`, `iss`, `iat`, `exp`
+**`/api/models` 回傳格式**
+```json
+{
+  "models": [
+    {
+      "pbi_config_id": "<uuid>",
+      "pbi_config_name": "顯示名稱",
+      "model_version": 5,
+      "relationships": { "relationships": [...] },
+      "tables": [...]
+    }
+  ]
+}
+```
+
+**`/api/credential` JWT Payload 欄位**：`tenant_id`, `client_id`, `client_secret`, `workspace_id`, `dataset_id`, `model_version`, `exp`
 
 **快取策略**
 
 | 資料 | 快取條件 | 更新時機 |
 |------|---------|---------|
-| credential | JWT 未過期（提前 5 分鐘更新） | 每次呼叫自動檢查 |
-| model | `model_version` 未變動 | 管理員上傳新模型後自動失效 |
+| models | 各模型的 `model_version` 未變動 | 管理員上傳新模型後自動失效 |
+| credential JWT | `exp` 未過期 | 每次使用前自動檢查 |
 
 ### v4.0.0 待辦
 
-#### 重構：`pbi_api_client.py` 對齊新 API 合約
+#### 重構：Python 腳本對齊新 API 合約
 
-- 移除 `load_credentials()`（讀本地 JWT 檔）及 `SERVER_JWT_SECRET` 相關邏輯
-- 改為呼叫 `GET /api/credential` 動態取得憑證，以 base64 decode payload 取用欄位（不驗簽名）
+- `fetch_model.py`：改呼叫 `GET /api/models`（複數），解析新的多模型回傳格式，各模型依 `pbi_config_id` 分別存檔
+- `fetch_credential.py`：改呼叫 `GET /api/credential?pbi_config_id=<id>`，需接受 `pbi_config_id` 參數
+- `pbi_api_client.py`：移除 `load_credentials()`（讀本地 JWT 檔）及 `SERVER_JWT_SECRET` 相關邏輯；改為動態取得憑證並 base64 decode payload（不驗簽名）
+- `check_setup.py`：`model_outdated` 邏輯需對應多模型格式，或由 `fetch_model.py` 統一負責版本比對

@@ -68,17 +68,8 @@ settings.local.json 存在但 PBI_MASK_KEY 為空。向使用者說明：
 - 若使用者提供金鑰 → 使用 Edit 工具將金鑰寫入 <WORKSPACE_ROOT>/.claude/settings.local.json 的 PBI_MASK_KEY 欄位，完成後告知使用者重新執行 /nl-to-dax
 - 若使用者選擇自行設定 → 告知其設定完成後重新執行 /nl-to-dax
 
-情況三：settings_created = false 且 has_mask_key = true 且 (has_credential = false 或 credential_expired = true)
-需要取得或更新憑證。執行以下指令：
-
-Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\fetch_credential.py"
-
-macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/fetch_credential.py"
-
-若執行失敗，回報 stderr 錯誤訊息並停止流程。
-若執行成功，繼續執行以下指令同步語意模型（憑證剛更新，model_outdated 狀態需一併處理）：
+情況三：settings_created = false 且 has_mask_key = true 且 (has_credential = false 或 credential_expired = true 或 model_outdated = true)
+需要同步模型與憑證。執行以下指令取得最新模型清單：
 
 Windows（PowerShell）：
 python "<SKILL_ROOT>\scripts\shared\fetch_model.py"
@@ -87,22 +78,25 @@ macOS / Linux：
 python3 "<SKILL_ROOT>/scripts/shared/fetch_model.py"
 
 若執行失敗，回報 stderr 錯誤訊息並停止流程。
-若執行成功，詢問使用者：「您想查詢什麼？」
+若執行成功，進行模型選擇（見下方「模型選擇流程」），接著繼續進入 Step 0。
 
-情況四：settings_created = false 且 has_mask_key = true 且 has_credential = true 且 credential_expired = false 且 model_outdated = true
-語意模型需要更新。執行以下指令：
+情況四：settings_created = false 且 has_mask_key = true 且 has_credential = true 且 credential_expired = false 且 model_outdated = false
+所有條件正常。進行模型選擇（見下方「模型選擇流程」），接著詢問使用者：「您想查詢什麼？」
+
+模型選擇流程：
+1. 讀取本地已快取的模型清單（fetch_model.py 執行後存於 pbi_query/）
+2. 若只有一個模型 → 自動選定，告知使用者：「使用模型：{pbi_config_name}」
+3. 若有多個模型 → 列出所有模型名稱供使用者選擇，等待使用者指定後繼續
+4. 依選定的 pbi_config_id 呼叫以下指令取得該模型的連線憑證：
 
 Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\fetch_model.py"
+python "<SKILL_ROOT>\scripts\shared\fetch_credential.py" <pbi_config_id>
 
 macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/fetch_model.py"
+python3 "<SKILL_ROOT>/scripts/shared/fetch_credential.py" <pbi_config_id>
 
 若執行失敗，回報 stderr 錯誤訊息並停止流程。
 若執行成功，詢問使用者：「您想查詢什麼？」
-
-情況五：settings_created = false 且 has_mask_key = true 且 has_credential = true 且 credential_expired = false 且 model_outdated = false
-所有條件正常。直接詢問使用者：「您想查詢什麼？」，待使用者提供需求後繼續進入 Step 0。
 
 Step 0：載入語意模型 (Load Semantic Model)
 本地 pbi_query/ 資料夾存放由申請程式拆分並同步的語意模型 chunks，結構如下：
