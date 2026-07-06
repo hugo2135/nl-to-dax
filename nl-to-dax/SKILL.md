@@ -36,7 +36,7 @@ Linux（bash）：
 bash "<SKILL_ROOT>/scripts/linux/trigger_check_setup.sh"
 
 腳本回傳 JSON 格式如下：
-{"settings_created": bool, "has_mask_key": bool, "has_server_url": bool, "has_credential": bool, "credential_expired": bool, "model_outdated": bool}
+{"settings_created": bool, "has_mask_key": bool, "has_server_url": bool, "has_model": bool}
 
 -1.3 依回傳結果分支處理（依序判斷，命中即停）
 
@@ -68,8 +68,8 @@ settings.local.json 存在但 PBI_MASK_KEY 為空。向使用者說明：
 - 若使用者提供金鑰 → 使用 Edit 工具將金鑰寫入 <WORKSPACE_ROOT>/.claude/settings.local.json 的 PBI_MASK_KEY 欄位，完成後告知使用者重新執行 /nl-to-dax
 - 若使用者選擇自行設定 → 告知其設定完成後重新執行 /nl-to-dax
 
-情況三：settings_created = false 且 has_mask_key = true 且 (has_credential = false 或 credential_expired = true 或 model_outdated = true)
-需要同步模型與憑證。執行以下指令取得最新模型清單：
+情況三：settings_created = false 且 has_mask_key = true 且 has_model = false
+需要同步語意模型。執行以下指令取得最新模型清單：
 
 Windows（PowerShell）：
 python "<SKILL_ROOT>\scripts\shared\fetch_model.py"
@@ -80,14 +80,15 @@ python3 "<SKILL_ROOT>/scripts/shared/fetch_model.py"
 若執行失敗，回報 stderr 錯誤訊息並停止流程。
 若執行成功，進行模型選擇（見下方「模型選擇流程」），接著繼續進入 Step 0。
 
-情況四：settings_created = false 且 has_mask_key = true 且 has_credential = true 且 credential_expired = false 且 model_outdated = false
-所有條件正常。進行模型選擇（見下方「模型選擇流程」），接著詢問使用者：「您想查詢什麼？」
+情況四：settings_created = false 且 has_mask_key = true 且 has_model = true
+所有條件正常。進行模型選擇（見下方「模型選擇流程」）。
 
 模型選擇流程：
-1. 讀取本地已快取的模型清單（fetch_model.py 執行後存於 pbi_query/）
+1. 讀取 <WORKSPACE_ROOT>/pbi_query/models_index.json，取得所有可用模型清單
 2. 若只有一個模型 → 自動選定，告知使用者：「使用模型：{pbi_config_name}」
 3. 若有多個模型 → 列出所有模型名稱供使用者選擇，等待使用者指定後繼續
-4. 依選定的 pbi_config_id 呼叫以下指令取得該模型的連線憑證：
+4. 記住選定的 pbi_config_id，後續步驟皆使用此 ID
+5. 依選定的 pbi_config_id 呼叫以下指令向 Server 取得該模型的 Access Token：
 
 Windows（PowerShell）：
 python "<SKILL_ROOT>\scripts\shared\fetch_credential.py" <pbi_config_id>
@@ -96,14 +97,40 @@ macOS / Linux：
 python3 "<SKILL_ROOT>/scripts/shared/fetch_credential.py" <pbi_config_id>
 
 若執行失敗，回報 stderr 錯誤訊息並停止流程。
-若執行成功，詢問使用者：「您想查詢什麼？」
+若執行成功，執行「模型概覽展示流程」（見下方），再詢問使用者：「您想查詢什麼？」
+
+模型概覽展示流程：
+1. 讀取 <WORKSPACE_ROOT>/pbi_query/<pbi_config_id>/tables/ 目錄下所有 table_*.json 檔案
+2. 彙整每張資料表的 table 名稱、description、columns、measures 欄位
+3. 依資料表名稱與描述，以語意判斷將資料表分群（例如：訂單/銷售、客戶/會員、產品、庫存、經銷商等，依實際模型靈活命名）
+4. 彙整所有資料表中的 measures，列出名稱清單（不需列出 DAX 表達式）
+5. 以下列格式輸出模型概覽：
+
+---
+以下是 **{pbi_config_name}** 模型中可查詢的主要資料範圍：
+
+**可查詢的資料主題**
+
+{主題一}
+| 資料表 | 說明 |
+|--------|------|
+| 表名   | 描述 |
+
+{主題二}
+...
+
+**預建 KPI 量值（量值區）**
+已有現成量值可直接使用，例如：
+- {量值群組一}：{量值1}、{量值2}、...
+- {量值群組二}：...
+---
 
 Step 0：載入語意模型 (Load Semantic Model)
-本地 pbi_query/ 資料夾存放由申請程式拆分並同步的語意模型 chunks，結構如下：
-- pbi_query/relationships.json（全域關聯性，整個語意模型僅一份）
-- pbi_query/tables/table_<表名>.json（各資料表結構，每張表一份）
+本地 pbi_query/<pbi_config_id>/ 資料夾存放由申請程式拆分並同步的語意模型 chunks，結構如下：
+- pbi_query/<pbi_config_id>/relationships.json（全域關聯性，整個語意模型僅一份）
+- pbi_query/<pbi_config_id>/tables/table_<表名>.json（各資料表結構，每張表一份）
 
-確認以上檔案存在後繼續後續步驟。若 pbi_query/ 不存在或為空，直接執行 fetch_model.py（參考 -1.3 情況四的指令），成功後繼續。
+確認以上檔案存在後繼續後續步驟。若目錄不存在或為空，直接執行 fetch_model.py（參考 -1.3 情況三的指令），成功後繼續。
 
 Step 0.4：載入並比對篩選設定檔 (Load & Match Filter Profiles)
 掃描 filters/ 資料夾，讀取所有 .json 篩選設定檔。每份設定檔的結構如下：
@@ -224,16 +251,16 @@ Step 5：執行 Power BI REST API 查詢
 使用 Write 工具，將 Step 4 產生的完整 DAX 查詢語法（不含程式碼區塊標記）寫入 <WORKSPACE_ROOT>/pbi_query/dax_query.txt（使用絕對路徑）。
 
 5.2 執行對應觸發腳本
-沿用 Step -1.1 偵測到的作業系統，執行以下對應指令：
+沿用 Step -1.1 偵測到的作業系統及 Step -1.3 模型選擇流程中記住的 <pbi_config_id>，執行以下對應指令：
 
 Windows（PowerShell）：
-powershell -File "<SKILL_ROOT>\scripts\windows\trigger_pbi_api.ps1" -DaxQueryFile "<WORKSPACE_ROOT>\pbi_query\dax_query.txt"
+powershell -File "<SKILL_ROOT>\scripts\windows\trigger_pbi_api.ps1" -PbiConfigId "<pbi_config_id>" -DaxQueryFile "<WORKSPACE_ROOT>\pbi_query\dax_query.txt"
 
 macOS（bash）：
-bash "<SKILL_ROOT>/scripts/macos/trigger_pbi_api.sh" "" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt"
+bash "<SKILL_ROOT>/scripts/macos/trigger_pbi_api.sh" "<pbi_config_id>" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt"
 
 Linux（bash）：
-bash "<SKILL_ROOT>/scripts/linux/trigger_pbi_api.sh" "" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt"
+bash "<SKILL_ROOT>/scripts/linux/trigger_pbi_api.sh" "<pbi_config_id>" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt"
 
 腳本執行成功後，會產生 pbi_query/query_result.csv。
 腳本的標準輸出（stdout）會印出一行 JSON 摘要，格式如下：

@@ -76,8 +76,8 @@ git push origin v3.1.0
 
 ### Power BI REST API 使用政策
 - **不實作 retry**：API 失敗時完整回報 HTTP status code 與 response body，由使用者判斷後續行動
-- **憑證不明文存放**：所有連線資訊透過 JWT + `PBI_MASK_KEY` 驗證，設定檔本身不可讀
-- **執行前必須驗證 JWT 過期時間**（`exp` 欄位），過期立即停止；Skill 端不驗簽名，僅 base64 decode payload
+- **Azure AD OAuth 由 Server 統一處理**：Skill 端不持有 tenant_id / client_id / client_secret，直接使用 `/api/token` 回傳的 access_token
+- **執行前警告 Token 過期**（比對 `expires_at`），過期時印 stderr 警告後仍嘗試執行；若 Power BI 回 401 則提示重新執行 `fetch_credential.py`
 - **輸出 CSV 前先確保目錄存在**（`os.makedirs(..., exist_ok=True)`），避免路徑不存在導致靜默失敗
 
 ### 跨平台相容性
@@ -94,7 +94,7 @@ git push origin v3.1.0
 
 ### 與申請程式的 API 合約
 
-> 初版規格確認（2026-06-23）。實作指引更新，SERVER_JWT_SECRET 移除（2026-06-24）。Skill 開發期間以 mock server 對接。
+> 初版規格確認（2026-06-23）。SERVER_JWT_SECRET 移除（2026-06-24）。/api/token 架構確認（2026-07-06）：Server 統一處理 Azure AD OAuth，Skill 端只需 access_token。
 
 **環境變數（設定至 `.claude/settings.local.json` 的 `env` 區塊，不使用系統環境變數）**
 
@@ -103,21 +103,20 @@ git push origin v3.1.0
 | `PBI_MASK_KEY` | 個人專屬金鑰，作為 API 請求的 Bearer token；使用者從管理後台領取 |
 | `CREDENTIAL_SERVER_URL` | 申請程式的 base URL；正式 URL 待部署後填入 |
 
-> `SERVER_JWT_SECRET` 已移除：Skill 端不驗 JWT 簽名，僅 base64 decode payload 取用欄位。
-> 無需安裝任何第三方套件，`urllib` 標準函式庫即可完成所有 HTTP 呼叫（包含 Azure AD OAuth）。
+> Azure AD OAuth 完全由 Server 處理，Skill 端不持有任何 Azure 憑證。無需安裝任何第三方套件，`urllib` 標準函式庫即可完成所有 HTTP 呼叫。
 
 **Skill 啟動流程（每次對話開始時執行）**
 
 1. `GET /api/models` → 取得所有可用模型清單（含 model data）；比對 `model_version`，版本未變則沿用本地快取
 2. 若使用者有多個可用模型，詢問要查詢哪個；單一模型則自動選定
-3. `GET /api/credential?pbi_config_id=<id>` → 取得選定模型的 Azure AD 憑證 JWT
+3. `GET /api/token?pbi_config_id=<id>` → Server 向 Azure AD 換取 access_token 後回傳，Skill 直接使用
 
 **API 端點**
 
 | 端點 | Header | 說明 |
 |------|--------|------|
 | `GET /api/models` | `Authorization: Bearer <PBI_MASK_KEY>` | 回傳所有可用模型（含 relationships、tables、model_version） |
-| `GET /api/credential?pbi_config_id=<id>` | `Authorization: Bearer <PBI_MASK_KEY>` | 回傳指定模型的憑證 JWT |
+| `GET /api/token?pbi_config_id=<id>` | `Authorization: Bearer <PBI_MASK_KEY>` | Server 換取 Azure AD access_token 後回傳，含 workspace_id、dataset_id |
 
 **`/api/models` 回傳格式**
 ```json
@@ -134,20 +133,38 @@ git push origin v3.1.0
 }
 ```
 
-**`/api/credential` JWT Payload 欄位**：`tenant_id`, `client_id`, `client_secret`, `workspace_id`, `dataset_id`, `model_version`, `exp`
+**`/api/token` 回傳格式**
+```json
+{
+  "access_token": "<bearer-token>",
+  "token_type": "Bearer",
+  "expires_in": 3599,
+  "workspace_id": "<uuid>",
+  "dataset_id": "<uuid>",
+  "model_version": 5
+}
+```
+
+**本地快取結構**
+
+```
+.claude/
+└── pbi_configs.json                     ← {<pbi_config_id>: {access_token, workspace_id, dataset_id, expires_at, model_version}}
+
+pbi_query/
+├── models_index.json                    ← [{pbi_config_id, pbi_config_name, model_version, table_count}]
+├── <pbi_config_id>/
+│   ├── relationships.json
+│   └── tables/
+│       └── table_<表名>.json
+└── query_result.csv
+```
+
+> `pbi_configs.json` 存放敏感的 access token，受 `.gitignore` 的 `.claude` 規則保護。`pbi_query/` 只存放不敏感的模型結構與查詢結果。
 
 **快取策略**
 
 | 資料 | 快取條件 | 更新時機 |
 |------|---------|---------|
 | models | 各模型的 `model_version` 未變動 | 管理員上傳新模型後自動失效 |
-| credential JWT | `exp` 未過期 | 每次使用前自動檢查 |
-
-### v4.0.0 待辦
-
-#### 重構：Python 腳本對齊新 API 合約
-
-- `fetch_model.py`：改呼叫 `GET /api/models`（複數），解析新的多模型回傳格式，各模型依 `pbi_config_id` 分別存檔
-- `fetch_credential.py`：改呼叫 `GET /api/credential?pbi_config_id=<id>`，需接受 `pbi_config_id` 參數
-- `pbi_api_client.py`：移除 `load_credentials()`（讀本地 JWT 檔）及 `SERVER_JWT_SECRET` 相關邏輯；改為動態取得憑證並 base64 decode payload（不驗簽名）
-- `check_setup.py`：`model_outdated` 邏輯需對應多模型格式，或由 `fetch_model.py` 統一負責版本比對
+| access token | `expires_at` 未過期（fetch 時 +expires_in 換算） | 過期後重新執行 fetch_credential.py |

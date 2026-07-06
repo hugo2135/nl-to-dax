@@ -2,3 +2,5 @@
 .env
 *.jwt
 pbi_credentials.jwt
+pbi_query/
+gen_test_jwt.py
