@@ -20,25 +20,15 @@ import urllib.error
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
 
-
-# ── Workspace root ────────────────────────────────────────────────────────────
-
-def _find_workspace_root(start_dir: str) -> str:
-    current = start_dir
-    while True:
-        if os.path.isdir(os.path.join(current, ".claude")):
-            return current
-        parent = os.path.dirname(current)
-        if parent == current:
-            raise RuntimeError("找不到工作區根目錄（未找到 .claude 資料夾）")
-        current = parent
+import skill_settings
 
 
 # ── Token ─────────────────────────────────────────────────────────────────────
 
-def load_token(pbi_config_id: str) -> dict:
+def load_token(workspace_root: str, pbi_config_id: str) -> dict:
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    workspace_root = _find_workspace_root(script_dir)
+    skill_root = skill_settings.get_skill_root(script_dir)
+    workspace_root = skill_settings.validate_workspace_root(workspace_root, skill_root)
     configs_path = os.path.join(workspace_root, ".claude", "pbi_configs.json")
 
     if not os.path.isfile(configs_path):
@@ -125,20 +115,22 @@ def result_to_csv(result: dict) -> tuple[str, int]:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 4:
         print(
-            "用法: python pbi_api_client.py <pbi_config_id> <dax_query_file> [output_csv_path]",
+            "用法: python pbi_api_client.py <workspace_root> <pbi_config_id> <dax_query_file> [output_csv_path]",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    pbi_config_id = sys.argv[1]
-    dax_file = sys.argv[2]
-    if len(sys.argv) > 3:
-        csv_path = sys.argv[3]
+    workspace_root = sys.argv[1]
+    pbi_config_id = sys.argv[2]
+    dax_file = sys.argv[3]
+    if len(sys.argv) > 4:
+        csv_path = sys.argv[4]
     else:
         _script_dir = os.path.dirname(os.path.abspath(__file__))
-        _workspace_root = _find_workspace_root(_script_dir)
+        _skill_root = skill_settings.get_skill_root(_script_dir)
+        _workspace_root = skill_settings.validate_workspace_root(workspace_root, _skill_root)
         csv_path = os.path.join(_workspace_root, "pbi_query", "query_result.csv")
 
     try:
@@ -148,7 +140,7 @@ def main():
             raise RuntimeError(f"DAX 查詢檔案為空：{dax_file}")
 
         print("[1/2] 載入 Access Token...", file=sys.stderr)
-        token_data = load_token(pbi_config_id)
+        token_data = load_token(workspace_root, pbi_config_id)
 
         print("[2/2] 執行 DAX 查詢...", file=sys.stderr)
         result = execute_dax(

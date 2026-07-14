@@ -27,19 +27,20 @@ fix: 修正 Windows 路徑定位在無 .claude 目錄時的錯誤
 breaking: 重構 JWT 憑證格式，payload 欄位名稱變更
 ```
 
-### 版號規則（Semantic Versioning）
-- `breaking` commit → major 升版（v3 → v4）
-- `feat` commit → minor 升版（v3.0 → v3.1）
-- `fix` / `refactor` commit → patch 升版（v3.0.0 → v3.0.1）
+### 版號規則（Major.Build）
+- `breaking` commit → major 升版，build 歸零（0.1 → 1.0）
+- `feat` / `fix` / `refactor` commit → build 遞增（0.1 → 0.2）
+
+不分 minor/patch：這個 skill 沒有外部套件依賴者需要鎖版本範圍，版號唯一的用途是讓 skill 自己判斷「有沒有新版本」，只需要區分「破壞性變更」跟「其餘所有變更」兩級即可。
 
 ### 打 Tag 時機
 - 累積數個相關 commit 後，或完成一個明確功能里程碑時打 tag
 - 不需要每個 commit 都打 tag
-- 打 tag 前同步更新 `.history`
+- 打 tag 前同步更新 `.history` 與 `nl-to-dax/VERSION`（兩者版號必須一致，`VERSION` 是 skill 自動檢查更新時比對的依據）
 
 ```bash
-git tag v3.1.0
-git push origin v3.1.0
+git tag v0.2
+git push origin v0.2
 ```
 
 ---

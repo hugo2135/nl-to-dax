@@ -1,3 +1,4 @@
+import datetime
 import json
 import os
 import sys
@@ -5,55 +6,47 @@ import sys
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
 
-
-def _find_workspace_root(start_dir: str) -> str:
-    current = start_dir
-    while True:
-        if os.path.isdir(os.path.join(current, ".claude")):
-            return current
-        parent = os.path.dirname(current)
-        if parent == current:
-            raise RuntimeError("找不到工作區根目錄（未找到 .claude 資料夾）")
-        current = parent
+import skill_settings
 
 
-_SETTINGS_TEMPLATE = {
-    "env": {
-        "PBI_MASK_KEY": "",
-        "CREDENTIAL_SERVER_URL": "http://localhost:5173/"
-    }
-}
-
-
-def _ensure_settings_local(workspace_root: str) -> bool:
-    """若 settings.local.json 不存在則自動建立，回傳是否新建。"""
-    settings_path = os.path.join(workspace_root, ".claude", "settings.local.json")
-    if os.path.isfile(settings_path):
-        return False
-    with open(settings_path, 'w', encoding='utf-8') as f:
-        json.dump(_SETTINGS_TEMPLATE, f, indent=2, ensure_ascii=False)
-    print(f"已建立 {settings_path}", file=sys.stderr)
-    return True
-
-
-def check() -> dict:
+def check(workspace_root: str) -> dict:
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    workspace_root = _find_workspace_root(script_dir)
-    pbi_query_dir = os.path.join(workspace_root, "pbi_query")
+    skill_root = skill_settings.get_skill_root(script_dir)
+    workspace_root = skill_settings.validate_workspace_root(workspace_root, skill_root)
+    pbi_config_dir = os.path.join(workspace_root, "pbi_config")
 
-    settings_created = _ensure_settings_local(workspace_root)
+    settings_created = skill_settings.ensure_settings_local(skill_root)
+    settings = skill_settings.load_settings(skill_root)
 
-    has_mask_key = bool(os.environ.get('PBI_MASK_KEY'))
-    has_server_url = bool(os.environ.get('CREDENTIAL_SERVER_URL'))
-    has_model = os.path.isfile(os.path.join(pbi_query_dir, "models_index.json"))
+    has_mask_key = bool(settings.get('PBI_MASK_KEY'))
+    has_server_url = bool(settings.get('CREDENTIAL_SERVER_URL'))
+    has_model = os.path.isfile(os.path.join(pbi_config_dir, "models_index.json"))
+
+    # 管理員可能隨時變動使用者的「已分配語意模型」，has_model 只代表本地曾經同步過，
+    # 不代表清單仍是最新的，因此每日至少強制重新同步一次，避免永遠沿用舊的模型清單。
+    last_sync_path = os.path.join(pbi_config_dir, "last_sync.json")
+    last_synced = None
+    if os.path.isfile(last_sync_path):
+        with open(last_sync_path, 'r', encoding='utf-8') as f:
+            last_synced = json.load(f).get('last_synced')
+    model_sync_stale = last_synced != datetime.date.today().isoformat()
 
     return {
-        "settings_created": settings_created,
-        "has_mask_key":     has_mask_key,
-        "has_server_url":   has_server_url,
-        "has_model":        has_model,
+        "settings_created":  settings_created,
+        "has_mask_key":      has_mask_key,
+        "has_server_url":    has_server_url,
+        "has_model":         has_model,
+        "model_sync_stale":  model_sync_stale,
     }
 
 
 if __name__ == "__main__":
-    print(json.dumps(check()))
+    if len(sys.argv) < 2:
+        print("用法: python check_setup.py <workspace_root>", file=sys.stderr)
+        sys.exit(1)
+    try:
+        print(json.dumps(check(sys.argv[1])))
+    except Exception as e:
+        print(f"錯誤：{e}", file=sys.stderr)
+        print(json.dumps({"success": False, "error": str(e)}))
+        sys.exit(1)

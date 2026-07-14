@@ -8,29 +8,23 @@ import urllib.error
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
 
-
-def _find_workspace_root(start_dir: str) -> str:
-    current = start_dir
-    while True:
-        if os.path.isdir(os.path.join(current, ".claude")):
-            return current
-        parent = os.path.dirname(current)
-        if parent == current:
-            raise RuntimeError("找不到工作區根目錄（未找到 .claude 資料夾）")
-        current = parent
+import skill_settings
 
 
-def fetch_credential(pbi_config_id: str) -> None:
-    mask_key = os.environ.get('PBI_MASK_KEY')
-    if not mask_key:
-        raise RuntimeError("環境變數 PBI_MASK_KEY 未設定")
-
-    api_url = os.environ.get('CREDENTIAL_SERVER_URL')
-    if not api_url:
-        raise RuntimeError("環境變數 CREDENTIAL_SERVER_URL 未設定")
-
+def fetch_credential(workspace_root: str, pbi_config_id: str) -> None:
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    workspace_root = _find_workspace_root(script_dir)
+    skill_root = skill_settings.get_skill_root(script_dir)
+    settings = skill_settings.load_settings(skill_root)
+
+    mask_key = settings.get('PBI_MASK_KEY')
+    if not mask_key:
+        raise RuntimeError("設定檔缺少 PBI_MASK_KEY，請確認 config/settings.local.json")
+
+    api_url = settings.get('CREDENTIAL_SERVER_URL')
+    if not api_url:
+        raise RuntimeError("設定檔缺少 CREDENTIAL_SERVER_URL，請確認 config/settings.local.json")
+
+    workspace_root = skill_settings.validate_workspace_root(workspace_root, skill_root)
     configs_path = os.path.join(workspace_root, ".claude", "pbi_configs.json")
 
     print(f"[1/2] 向申請程式取得 Access Token（pbi_config_id={pbi_config_id}）...", file=sys.stderr)
@@ -76,11 +70,11 @@ def fetch_credential(pbi_config_id: str) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("用法: python fetch_credential.py <pbi_config_id>", file=sys.stderr)
+    if len(sys.argv) < 3:
+        print("用法: python fetch_credential.py <workspace_root> <pbi_config_id>", file=sys.stderr)
         sys.exit(1)
     try:
-        fetch_credential(sys.argv[1])
+        fetch_credential(sys.argv[1], sys.argv[2])
     except Exception as e:
         print(f"錯誤：{e}", file=sys.stderr)
         print(json.dumps({"success": False, "error": str(e)}))
