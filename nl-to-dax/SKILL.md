@@ -1,4 +1,9 @@
-Natural Language to DAX Skill
+---
+name: nl-to-dax
+description: 根據使用者以中文或英文描述的自然語言需求，透過多階段推理生成適用於 Power BI REST API 的專用 DAX 查詢語法，自動呼叫 Power BI REST API 執行查詢並輸出 CSV 結果。當使用者想要查詢 Power BI 語意模型中的資料、要求產生 DAX 查詢、或提到「查訂單」「查銷量」等業務資料查詢需求時，使用此 skill。
+---
+
+# Natural Language to DAX Skill
 
 用途
 根據使用者提供的自然語言需求，透過多階段推理，生成適用於 Power BI REST API 的專用 DAX 查詢語法，並自動呼叫 Power BI REST API 執行查詢、輸出 CSV 結果。語意模型由申請程式集中管理，Skill 啟動時自動同步至本地。
