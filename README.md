@@ -2,7 +2,7 @@
 
 自然語言轉 DAX 查詢的 Claude Skill，針對 Power BI REST API 設計。輸入需求描述，自動完成認證檢查、模型選擇、關聯驗證、篩選套用，透過 nl-to-dax MCP connector 執行查詢、輸出結果。
 
-> **本分支開發中**：認證方式由本機 `PBI_MASK_KEY` 檔案改為 MCP connector + OAuth，Skill 本身不再持有、管理任何憑證。`SKILL.md` 裡呼叫的 MCP 工具（`list_models`、`get_model_detail`、`run_dax_query`）名稱與參數為暫定介面，待後端 MCP server 定案後會更新。開放問題請見 `CLAUDE.md` 的「開發計畫」章節。
+> **本分支開發中**：認證方式由本機 `PBI_MASK_KEY` 檔案改為 MCP connector + OAuth。`SKILL.md` 呼叫的 MCP 工具（`list_models`、`get_model_detail`、`get_powerbi_token`）schema 已由後端定案；查詢執行不是 MCP 工具，是 Skill 用 `get_powerbi_token` 取得的 Access Token 直接對 Power BI REST API 發送請求（見下方架構說明）。開放問題請見 `CLAUDE.md` 的「開發計畫」章節。
 
 ---
 
@@ -10,13 +10,13 @@
 
 | 功能 | 說明 |
 |------|------|
-| MCP 認證 | 透過 Claude 的 Settings → Connectors 完成 OAuth 授權，Skill 不接觸任何憑證 |
+| MCP 認證 | 透過 Claude 的 Settings → Connectors 完成 OAuth 授權，Skill 不持有 Azure AD 密鑰 |
 | 多模型支援 | 支援多個 Power BI 資料集，啟動時列出可用模型供選擇 |
 | 模型概覽展示 | 優先使用管理員預先撰寫的模型說明（省 token）；沒有則自動彙整資料表與量值 |
 | 智慧篩選套用 | 依據需求關鍵字自動比對篩選設定檔，套用至 DAX 查詢 |
 | 關聯驗證 | 自動驗證資料表間的關聯有效性，缺口時主動發問 |
 | DAX 生成 | 輸出符合 Power BI REST API 規格的完整查詢語法（含 `EVALUATE`） |
-| API 執行 | 透過 MCP connector 執行查詢並取得結果，Access Token 交換全部在 connector 內部處理 |
+| API 執行 | 用 MCP 取得的 Access Token，直接對 Power BI REST API 發送查詢；Token 僅存在單次對話中，不落地、不跨對話持久化 |
 
 ---
 
@@ -56,7 +56,8 @@ nl-to-dax/
 │   │   └── refund_analysis.json  # 退費分析模式（覆蓋預設篩選）
 │   └── scripts/
 │       └── shared/
-│           └── check_update.py   # 選用：每日版本檢查（比對遠端 git tag），與認證機制無關
+│           ├── check_update.py         # 選用：每日版本檢查（比對遠端 git tag），與認證機制無關
+│           └── execute_dax_query.py    # 用 MCP 取得的 Access Token，直接對 Power BI executeQueries API 送查詢
 └── README.md
 ```
 
@@ -80,7 +81,7 @@ nl-to-dax/
 範例：列出各縣市的本月訂單數量與總金額，依縣市排序
 ```
 
-Skill 自動完成：MCP 認證檢查 → 模型選擇 → 模型概覽展示 → DAX 生成 → 透過 MCP 執行查詢 → 輸出結果。
+Skill 自動完成：MCP 認證檢查（`list_models`）→ 模型選擇與取得完整結構（`get_model_detail`）→ 模型概覽展示 → DAX 生成 → 取得 Access Token（`get_powerbi_token`，同一對話內快取複用）→ 直接對 Power BI 執行查詢 → 輸出結果。
 
 ---
 
@@ -106,6 +107,7 @@ Skill 自動完成：MCP 認證檢查 → 模型選擇 → 模型概覽展示 �
 
 ## 注意事項
 
-- Skill 不持有、不儲存任何憑證（Access Token、Azure AD 密鑰等）；所有認證由 MCP connector 的 OAuth 流程處理
+- Skill 不持有 Azure AD 密鑰等底層憑證；查詢用的 Access Token 由 `get_powerbi_token` 取得後僅存在單次對話的上下文中，絕不寫入本機檔案跨對話持久化
 - 語意模型與查詢結果皆為即時取得，管理員異動使用者的已分配模型時不會有本機快取過期的問題
-- 本分支 SKILL.md 中的 MCP 工具介面為暫定設計，實際串接測試需等後端定案
+- Server 端不執行查詢，只換發 Access Token；DAX 查詢由 Skill 用 `execute_dax_query.py` 直接對 Power BI REST API 發送請求，避免多使用者併發查詢卡住 Server
+- `list_models`/`get_model_detail`/`get_powerbi_token` 的 schema 已由後端定案，尚待對照真實部署的 MCP server 進行串接測試（見 CLAUDE.md 開發計畫）

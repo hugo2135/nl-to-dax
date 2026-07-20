@@ -101,13 +101,18 @@ git push origin v0.2
 
 ### mcp-oauth 分支開放問題
 
-> 此分支已完成 SKILL.md 骨架重構（Step -1 改為 MCP connector 認證檢查、模型選擇/概覽改呼叫 `list_models`、Step 5 改呼叫 `run_dax_query`），本機憑證管理腳本（`check_setup.py`、`fetch_credential.py`、`fetch_model.py`、`pbi_api_client.py`、`model_overview.py`、`skill_settings.py`）與對應 trigger 腳本已移除。以下項目待後端 MCP server 定案、或需要團隊一起拍板：
+> 此分支已完成 SKILL.md 骨架重構，本機憑證管理腳本（`check_setup.py`、`fetch_credential.py`、`fetch_model.py`、`pbi_api_client.py`、`model_overview.py`、`skill_settings.py`）與對應 trigger 腳本已移除。後端已提供正式的 MCP 工具定義（`list_models`、`get_model_detail`、`get_powerbi_token`，見下方架構說明），SKILL.md 已依此更新，不再是暫定介面。
 
-- **`list_models` 回傳內容範圍**：直接內含完整 `relationships`/`tables`，還是只回輕量清單（`pbi_config_id`/`pbi_config_name`/`model_description`/table 數），選定模型後再另外呼叫 `get_model_detail` 取得完整結構？後者對 token 成本較友善，尤其使用者可存取的模型數量多時。
+**架構確認（跟最初假設不同，記錄避免之後又搞錯）**：Server 端**不提供執行查詢的 MCP 工具**。`get_powerbi_token(pbi_config_id)` 只回傳 access token，DAX 查詢是 Skill 自己拿這個 token 直接對 Power BI 的 `executeQueries` REST API 發送請求（新增 `scripts/shared/execute_dax_query.py` 處理），不經過 nl-to-dax 的 Server——這是刻意設計，避免多使用者併發查詢時卡住 Server 的同步呼叫。Access token 只能存在於單次對話的上下文中快取（Skill 自己在推理層面記住，同一個 `pbi_config_id` 未過期就複用，不用每次查詢都重新呼叫 `get_powerbi_token`），絕對不可寫入本機檔案跨對話持久化。
+
+已解決：
+- ~~`list_models` 回傳範圍~~：確認為輕量清單（`pbi_config_id`/`pbi_config_name`/`model_version`/`model_description`/`table_count`），完整 `relationships`/`tables`/`workspace_id`/`dataset_id` 由獨立的 `get_model_detail(pbi_config_id)` 取得。
+- ~~`server-token` 分支要不要保留當 fallback~~：後端已明確表示新舊 skill 一律統一改用 MCP，**不維護兩條並行路徑**，`server-token` 分支維持原規劃（過渡用，之後合併回來取代）。
+
+仍待確認：
 - **查詢結果是否落地成本機 CSV 檔**：SKILL.md 目前預設維持落地（`pbi_query/query_result.csv`，由 Claude 用 Write 工具寫入），因為在 Claude Code 下寫檔案對使用者有意義；若之後主要在 Claude Apps sandbox 環境使用，寫了也是對話結束就消失，落不落地差異不大，需要重新評估。
-- **`check_update.py`（Skill 版本檢查）去留**：維持現有比對 git tag 的機制，還是之後打包成 plugin 後改用 marketplace 自帶的版本機制？
-- **`server-token` 分支的本機 `PBI_MASK_KEY` 流程要不要保留當 fallback**：會影響 SKILL.md 要不要維護兩條路徑（MCP 優先、本機憑證備援），需要跟後端一起決定。
-- **實際串接測試**：上述 MCP 工具的參數/回傳格式需等後端 `list_models`/`get_model_detail`/`run_dax_query` 定案並在測試環境跑起來後，才能對照 SKILL.md 目前的暫定介面實際調整。
+- **`check_update.py`（Skill 版本檢查）去留**：維持現有比對 git tag 的機制，還是之後打包成 plugin 後改用 marketplace 自帶的版本機制？跟認證機制無關。
+- **實際串接測試**：`list_models`/`get_model_detail`/`get_powerbi_token` 的 schema 已定案，但尚未對照真實部署的 MCP server 實際跑過，需要串接測試驗證 SKILL.md 的呼叫方式與 `execute_dax_query.py` 的資料轉換邏輯是否正確。
 
 ### 與申請程式的 API 合約
 
