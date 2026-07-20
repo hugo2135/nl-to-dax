@@ -99,6 +99,16 @@ git push origin v0.2
 > 完成的項目直接刪除。版本里程碑記錄請見 `.history`。
 > 申請程式的開發計畫另立獨立專案追蹤。
 
+### mcp-oauth 分支開放問題
+
+> 此分支已完成 SKILL.md 骨架重構（Step -1 改為 MCP connector 認證檢查、模型選擇/概覽改呼叫 `list_models`、Step 5 改呼叫 `run_dax_query`），本機憑證管理腳本（`check_setup.py`、`fetch_credential.py`、`fetch_model.py`、`pbi_api_client.py`、`model_overview.py`、`skill_settings.py`）與對應 trigger 腳本已移除。以下項目待後端 MCP server 定案、或需要團隊一起拍板：
+
+- **`list_models` 回傳內容範圍**：直接內含完整 `relationships`/`tables`，還是只回輕量清單（`pbi_config_id`/`pbi_config_name`/`model_description`/table 數），選定模型後再另外呼叫 `get_model_detail` 取得完整結構？後者對 token 成本較友善，尤其使用者可存取的模型數量多時。
+- **查詢結果是否落地成本機 CSV 檔**：SKILL.md 目前預設維持落地（`pbi_query/query_result.csv`，由 Claude 用 Write 工具寫入），因為在 Claude Code 下寫檔案對使用者有意義；若之後主要在 Claude Apps sandbox 環境使用，寫了也是對話結束就消失，落不落地差異不大，需要重新評估。
+- **`check_update.py`（Skill 版本檢查）去留**：維持現有比對 git tag 的機制，還是之後打包成 plugin 後改用 marketplace 自帶的版本機制？
+- **`server-token` 分支的本機 `PBI_MASK_KEY` 流程要不要保留當 fallback**：會影響 SKILL.md 要不要維護兩條路徑（MCP 優先、本機憑證備援），需要跟後端一起決定。
+- **實際串接測試**：上述 MCP 工具的參數/回傳格式需等後端 `list_models`/`get_model_detail`/`run_dax_query` 定案並在測試環境跑起來後，才能對照 SKILL.md 目前的暫定介面實際調整。
+
 ### 與申請程式的 API 合約
 
 > 初版規格確認（2026-06-23）。SERVER_JWT_SECRET 移除（2026-06-24）。/api/token 架構確認（2026-07-06）：Server 統一處理 Azure AD OAuth，Skill 端只需 access_token。

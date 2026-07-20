@@ -7,8 +7,6 @@ import sys
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
 
-import skill_settings
-
 REMOTE_URL = "git@github.com:hugo2135/nl-to-dax.git"
 
 
@@ -113,5 +111,5 @@ def check_update(skill_root: str) -> dict:
 
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    skill_root = skill_settings.get_skill_root(script_dir)
+    skill_root = os.path.dirname(os.path.dirname(script_dir))
     print(json.dumps(check_update(skill_root), ensure_ascii=False))

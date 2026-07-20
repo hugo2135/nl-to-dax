@@ -1,12 +1,14 @@
 ---
 name: nl-to-dax
-description: 根據使用者以中文或英文描述的自然語言需求，透過多階段推理生成適用於 Power BI REST API 的專用 DAX 查詢語法，自動呼叫 Power BI REST API 執行查詢並輸出 CSV 結果。當使用者想要查詢 Power BI 語意模型中的資料、要求產生 DAX 查詢、或提到「查訂單」「查銷量」等業務資料查詢需求時，使用此 skill。
+description: 根據使用者以中文或英文描述的自然語言需求，透過多階段推理生成適用於 Power BI REST API 的專用 DAX 查詢語法，透過 nl-to-dax MCP connector 執行查詢並輸出結果。當使用者想要查詢 Power BI 語意模型中的資料、要求產生 DAX 查詢、或提到「查訂單」「查銷量」等業務資料查詢需求時，使用此 skill。
 ---
 
-# Natural Language to DAX Skill
+# Natural Language to DAX Skill（mcp-oauth 分支）
 
 用途
-根據使用者提供的自然語言需求，透過多階段推理，生成適用於 Power BI REST API 的專用 DAX 查詢語法，並自動呼叫 Power BI REST API 執行查詢、輸出 CSV 結果。語意模型由申請程式集中管理，Skill 啟動時自動同步至本地。
+根據使用者提供的自然語言需求，透過多階段推理，生成適用於 Power BI REST API 的專用 DAX 查詢語法，並透過 nl-to-dax MCP connector 執行查詢、取得結果。語意模型清單與查詢執行皆由 MCP connector 統一處理，認證採 OAuth，Skill 本身不持有、不管理、不接觸任何憑證（access token、Azure AD 密鑰等）。
+
+> 此分支跟 `server-token` 分支（本機 `PBI_MASK_KEY` 方案）的差異僅在 Step -1 的認證方式，以及 Step 5 取得模型資料/執行查詢的管道；Step 0.4、Step 1-4（篩選比對、資料表識別、關聯驗證、欄位量值提取、DAX 生成）的推理邏輯完全共用，修改時請依 CLAUDE.md 的分支策略，先在 `solo` 分支進行。
 
 輸入
 執行此 Skill 時，使用者需提供：
@@ -15,131 +17,44 @@ DAX 需求：以中文或英文描述想查詢的資料內容或計算邏輯。
 
 執行步驟
 
-Step -1：環境檢查與初始化 (Pre-check)
+Step -1：認證檢查 (Auth Check)
 
--1.0 定位根目錄
+> **開發中**：本節呼叫的 MCP 工具名稱、參數、回傳格式為暫定介面，待後端 MCP server 實際定案後需要更新。
+
 此 SKILL.md 所在的目錄即為 Skill 根目錄，以下稱 <SKILL_ROOT>。
-<WORKSPACE_ROOT> 為使用者當前操作的專案／工作區目錄，與 <SKILL_ROOT> 的實際安裝位置無關——
-skill 可能安裝在專案內的 `.claude/skills/`，也可能安裝在使用者層級的 `~/.claude/skills/`，
-兩種情況下 <WORKSPACE_ROOT> 都是使用者目前工作的專案目錄，不可用 <SKILL_ROOT> 往上推算。
-所有腳本與檔案路徑皆使用絕對路徑。執行任何指令前，必須先確認兩個根目錄的實際路徑，
-並將 <WORKSPACE_ROOT> 明確作為參數傳給以下所有腳本（腳本本身不會猜測工作區根目錄，
-若傳入的路徑不存在會直接回報錯誤及 Skill 目前所在路徑）。
 
--1.1 偵測作業系統
-判斷當前執行環境的作業系統：
-- Windows → <SKILL_ROOT>\scripts\windows\trigger_check_setup.ps1
-- macOS   → <SKILL_ROOT>/scripts/macos/trigger_check_setup.sh
-- Linux   → <SKILL_ROOT>/scripts/linux/trigger_check_setup.sh
+嘗試呼叫 MCP 工具 `list_models`（暫定名稱），取得使用者目前有權限存取的語意模型清單。
 
--1.1b 檢查 Python 環境
-在執行任何 Skill 腳本前，先確認 Python 可用、版本 ≥ 3.9、且所有腳本會用到的標準函式庫模組都能正常匯入（此 Skill 只依賴標準函式庫，不需安裝任何第三方套件，所以這裡不是檢查套件，是檢查 Python 安裝本身是否完整）。依 -1.1 偵測到的作業系統執行對應指令：
-
-Windows（PowerShell）：
-powershell -File "<SKILL_ROOT>\scripts\windows\trigger_check_python_env.ps1"
-
-macOS（bash）：
-bash "<SKILL_ROOT>/scripts/macos/trigger_check_python_env.sh"
-
-Linux（bash）：
-bash "<SKILL_ROOT>/scripts/linux/trigger_check_python_env.sh"
-
-若指令本身找不到（例如「'python' 不是內部或外部命令」／「command not found」，代表連 Python 都沒裝，腳本無法執行）：告知使用者「找不到 Python，請先安裝 Python 3.9 以上版本」，停止流程。
-
-若指令有執行，回傳 JSON 格式如下：
-{"python_version": "3.x.x", "version_ok": bool, "missing_modules": [...], "ok": bool}
-
-- `ok = true`：檢查通過，繼續下一步。
-- `version_ok = false`：告知使用者目前偵測到的版本（`python_version`），請其升級至 3.9 以上，停止流程。
-- `missing_modules` 非空（極少見，通常代表 Python 安裝不完整或為精簡版）：告知使用者缺少哪些標準函式庫模組，建議重新安裝完整版 Python，停止流程。
-
--1.2 執行環境檢查腳本
-根據作業系統執行對應指令（將 <SKILL_ROOT>、<WORKSPACE_ROOT> 替換為實際路徑）：
-
-Windows（PowerShell）：
-powershell -File "<SKILL_ROOT>\scripts\windows\trigger_check_setup.ps1" -WorkspaceRoot "<WORKSPACE_ROOT>"
-
-macOS（bash）：
-bash "<SKILL_ROOT>/scripts/macos/trigger_check_setup.sh" "<WORKSPACE_ROOT>"
-
-Linux（bash）：
-bash "<SKILL_ROOT>/scripts/linux/trigger_check_setup.sh" "<WORKSPACE_ROOT>"
-
-腳本回傳 JSON 格式如下：
-{"settings_created": bool, "has_mask_key": bool, "has_server_url": bool, "has_model": bool, "model_sync_stale": bool, "settings_path_absolute": "...", "settings_path_relative": "..."|null}
-
--1.3 依回傳結果分支處理
-
-若 has_mask_key = false：
-先用 Read 工具讀取上一步 JSON 回傳的 `settings_path_absolute`（settings.local.json 的實際路徑，位於使用者家目錄下，不是 <SKILL_ROOT>/config/ 底下——skill 執行環境每次對話可能重新產生，設定檔必須放在持續存在的位置），取得實際的 CREDENTIAL_SERVER_URL 值。
-向使用者說明（若 settings_created = true，開頭加一句「已自動建立設定檔。」；不要輸出未解析的 {CREDENTIAL_SERVER_URL} 佔位符）：
-服務網址本身就是合法 URL，直接用 `[實際網址](實際網址)` 呈現即可。
-settings.local.json 的連結**直接使用上一步 JSON 回傳的欄位，不要自己判斷或計算路徑**（自行推算容易算錯、甚至生出不存在的路徑）：
-- 若 `settings_path_relative` 不是 null：直接照抄這個值呈現為 Markdown 連結，例如 `[settings.local.json](settings_path_relative 的值)`。
-- 若 `settings_path_relative` 是 null：改為純文字顯示 `settings_path_absolute` 的值，不做成連結。
-「在開始使用前，您需要完成以下申請流程取得個人金鑰（PBI_MASK_KEY）：
-
-1. 開啟服務網址：[實際網址](實際網址)
-2. 點選「立即註冊」，填入 Email 與密碼後申請帳號
-3. 等待管理員開通帳號（開通後才能登入）
-4. 登入後進入個人頁面，點選「領取 PBI_MASK_KEY」
-5. 金鑰只顯示一次，請立即複製並妥善保存
-
-取得金鑰後，您可以直接將金鑰提供給我，我幫您填入設定檔；或自行開啟 settings.local.json（依上述規則呈現為相對路徑連結或純文字絕對路徑）填入 PBI_MASK_KEY 欄位。」
-等待使用者回應後：
-- 若使用者提供金鑰 → 使用 Edit 工具將金鑰寫入 settings.local.json 的 PBI_MASK_KEY 欄位，完成後告知使用者重新執行 /nl-to-dax
-- 若使用者選擇自行設定 → 告知其設定完成後重新執行 /nl-to-dax
+若呼叫失敗（尚未連接 MCP connector 或授權已過期）：
+向使用者說明：「這個 Skill 需要先連接 nl-to-dax 的 MCP connector 才能使用。請至 Claude 的 Settings → Connectors，新增並連線 nl-to-dax connector，完成帳號登入與 OAuth 授權後，重新執行 /nl-to-dax。」
 流程到此停止。
 
-若 has_mask_key = true：
-若 has_model = false 或 model_sync_stale = true，先執行以下指令同步最新語意模型（管理員可能隨時變動使用者的已分配模型，has_model = true 只代表本地曾經同步過、不代表清單仍最新，因此每日至少強制重新同步一次）：
+若呼叫成功：回傳內容即為可用模型清單，每個模型物件至少包含 `pbi_config_id`、`pbi_config_name`、`model_description`（可能為 null）。直接進入「模型選擇流程」。
 
-Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\fetch_model.py" "<WORKSPACE_ROOT>"
-
-macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/fetch_model.py" "<WORKSPACE_ROOT>"
-
-若執行失敗，回報 stderr 錯誤訊息並停止流程（即使本地已有舊的模型快取，也不要靜默沿用，因為無法確認使用者目前是否仍有權限存取這些模型）。
-
--1.4 檢查 Skill 版本
-執行以下指令（內部每日最多實際查詢一次，其餘時間直接讀快取，不會有感延遲）：
-
-Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\check_update.py"
+（可選）Skill 版本檢查：
+與認證機制無關，是否保留現有 `check_update.py`、或改用未來 plugin marketplace 自帶的版本機制，屬於獨立的開放問題（見 CLAUDE.md 開發計畫），不影響本節主流程。若保留，執行方式：
 
 macOS / Linux：
 python3 "<SKILL_ROOT>/scripts/shared/check_update.py"
 
-回傳 JSON 格式：{"current_version": "0.1", "latest_version": "0.2"|null, "update_available": bool, "checked": bool}
-此步驟純粹是提醒性質，不影響主流程：
-- 若執行失敗、或 checked = false（例如沒有網路、沒有 git 權限、遠端尚未打過任何 tag）：靜默略過，不告知使用者。
-- 若 update_available = true：在稍後的回覆中簡短提醒一次即可，例如「（偵測到新版本 v{latest_version}，目前使用 v{current_version}，建議之後更新部署）」，不要中斷流程、不要因此停下來等使用者回應。
+Windows（PowerShell）：
+python "<SKILL_ROOT>\scripts\shared\check_update.py"
 
-不論以上步驟是否執行，接著都進行模型選擇（見下方「模型選擇流程」）。
+回傳 JSON：{"current_version": "...", "latest_version": "..."|null, "update_available": bool, "checked": bool}
+此步驟純粹是提醒性質：執行失敗或 checked = false 時靜默略過，不告知使用者；`update_available = true` 時在稍後的回覆中簡短提醒一次即可，不中斷流程。
 
 模型選擇流程：
-1. 讀取 <WORKSPACE_ROOT>/pbi_config/models_index.json，取得所有可用模型清單
+1. 從 `list_models` 回傳的清單中選擇模型
 2. 若只有一個模型 → 自動選定，告知使用者：「使用模型：{pbi_config_name}」
 3. 若有多個模型 → 列出所有模型名稱供使用者選擇，等待使用者指定後繼續
-4. 記住選定的 pbi_config_id，後續步驟皆使用此 ID
-5. 依選定的 pbi_config_id 呼叫以下指令向 Server 取得該模型的 Access Token：
-
-Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\fetch_credential.py" "<WORKSPACE_ROOT>" <pbi_config_id>
-
-macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/fetch_credential.py" "<WORKSPACE_ROOT>" <pbi_config_id>
-
-若執行失敗：向使用者說明「Access Token 取得失敗，請確認 PBI_MASK_KEY 是否正確；若金鑰無誤，可能是伺服器端（申請程式）的設定問題，請聯繫服務網址管理員協助排查」，並停止流程。
-不要在回覆中逐字貼出 stderr 的原始錯誤內容——其中可能包含伺服器內部的識別碼、密鑰設定等基礎設施細節（例如 Azure AD App ID），不適合暴露給一般使用者；僅在使用者主動要求查看技術細節時才提供。
-若執行成功，執行「模型概覽展示流程」（見下方），再詢問使用者：「您想查詢什麼？」
+4. 記住選定的 `pbi_config_id`，後續步驟皆使用此 ID
+5. 執行「模型概覽展示流程」（見下方），再詢問使用者：「您想查詢什麼？」
 
 模型概覽展示流程：
-1. 檢查「模型選擇流程」步驟 1 讀取 models_index.json 時，該模型的 model_description 欄位是否有值（申請程式管理員可預先為模型撰寫整體說明）。
+1. 檢查選定模型的 `model_description` 欄位是否有值（申請程式管理員可預先為模型撰寫整體說明）。
 
 若 model_description 有值（優先路徑，節省 token）：
-直接以 model_description 作為模型概覽輸出，不需執行 model_overview.py、不需讀取 relationships/tables、不需自行分群或彙整量值——管理員撰寫的說明已涵蓋這些內容。輸出格式：
+直接以 model_description 作為模型概覽輸出，不需另外呼叫任何工具、不需自行分群或彙整量值——管理員撰寫的說明已涵蓋這些內容。輸出格式：
 
 ---
 以下是 **{pbi_config_name}** 模型中可查詢的主要資料範圍：
@@ -148,17 +63,9 @@ python3 "<SKILL_ROOT>/scripts/shared/fetch_credential.py" "<WORKSPACE_ROOT>" <pb
 ---
 
 若 model_description 為 null（回退路徑）：
-執行以下指令取得該模型的整合結構化資料（relationships + 所有 tables），不要自行用 Read 工具逐一開啟 tables/ 目錄下的檔案，也不要委派給其他 Skill 或 subagent 處理：
+> **開發中**：此路徑呼叫的 MCP 工具（暫定 `get_model_detail(pbi_config_id)`）待後端定案，可能與 `list_models` 合併回傳、也可能是獨立工具呼叫。
 
-Windows（PowerShell）：
-powershell -File "<SKILL_ROOT>\scripts\windows\trigger_model_overview.ps1" -WorkspaceRoot "<WORKSPACE_ROOT>" -PbiConfigId "<pbi_config_id>"
-
-macOS / Linux：
-bash "<SKILL_ROOT>/scripts/macos/trigger_model_overview.sh" "<WORKSPACE_ROOT>" "<pbi_config_id>"（Linux 對應 scripts/linux 路徑）
-
-若執行失敗，回報 stderr 錯誤訊息並停止流程。
-
-直接使用上一步 stdout 回傳的 JSON（不需再讀取其他檔案，也不需另外委派任何 Skill 產生說明文件）中的 relationships、tables（與 Step 0 的 relationships.json／table_<表名>.json 內容相同），接著：
+取得該模型完整的 relationships + tables 結構化資料（結構定義見下方 Step 0），接著：
 - 彙整每張資料表的 table 名稱、description、columns、measures 欄位
 - 依資料表名稱與描述，以語意判斷將資料表分群（例如：訂單/銷售、客戶/會員、產品、庫存、經銷商等，依實際模型靈活命名）
 - 彙整所有資料表中的 measures，列出名稱清單（不需列出 DAX 表達式）
@@ -183,15 +90,53 @@ bash "<SKILL_ROOT>/scripts/macos/trigger_model_overview.sh" "<WORKSPACE_ROOT>" "
 - {量值群組二}：...
 ---
 
-Step 0：載入語意模型 (Load Semantic Model)
-本地 pbi_config/<pbi_config_id>/ 資料夾存放由申請程式拆分並同步的語意模型 chunks，結構如下：
-- pbi_config/<pbi_config_id>/relationships.json（全域關聯性，整個語意模型僅一份）
-- pbi_config/<pbi_config_id>/tables/table_<表名>.json（各資料表結構，每張表一份）
+Step 0：載入語意模型結構 (Load Semantic Model)
 
-此時應已於 -1.3 同步完成。若意外不存在（例如快取被手動清除），比照 -1.3 的 fetch_model.py 指令重新同步一次再繼續。
+> **開發中**：資料來源改為 Step -1／模型概覽展示流程呼叫 MCP 工具取得的回傳內容，不再讀本機檔案（`server-token` 分支的 `pbi_config/` 本機快取機制在此分支已移除，不需要落地快取，每次都是即時資料）。
+
+確認已取得選定模型的 relationships 與 tables 結構化資料，格式如下：
+
+表與表關聯（relationships）：
+
+JSON
+{
+  "relationships": [
+    {
+      "fromTable": "Table_Name",
+      "fromColumn": "Column_Name",
+      "toTable": "Table_Name",
+      "toColumn": "Column_Name",
+      "cardinality": "ManyToOne",
+      "crossFilterDirection": "Single",
+      "isActive": true
+    }
+  ]
+}
+
+表與行和量值（tables 陣列中每個 table 物件）：
+
+JSON
+{
+  "table": "Table_Name",
+  "description": "Table_Description",
+  "columns": [
+    {
+      "column": "Column_Name",
+      "dataType": "DataType",
+      "description": "Column_Description"
+    }
+  ],
+  "measures": [
+    {
+      "measure": "Measure_Name",
+      "expression": "DAX_Expression",
+      "description": "Measure_Description"
+    }
+  ]
+}
 
 Step 0.4：載入並比對篩選設定檔 (Load & Match Filter Profiles)
-掃描 filters/ 資料夾，讀取所有 .json 篩選設定檔。每份設定檔的結構如下：
+掃描 <SKILL_ROOT>/filters/ 資料夾，讀取所有 .json 篩選設定檔。每份設定檔的結構如下：
 
 JSON
 {
@@ -224,62 +169,21 @@ JSON
 
 4. 最終篩選集將在 Step 4 生成 DAX 時套用。若最終篩選集為空（例如排查模式），則與使用者確認篩選條件。
 
-Step 0 產生的兩類 JSON 格式如下：
-
-表與表關聯的 JSON（relationships.json）：
-
-JSON
-{
-  "relationships": [
-    {
-      "fromTable": "Table_Name",
-      "fromColumn": "Column_Name",
-      "toTable": "Table_Name",
-      "toColumn": "Column_Name",
-      "cardinality": "ManyToOne",
-      "crossFilterDirection": "Single",
-      "isActive": true
-    }
-  ]
-}
-
-表與行和量值的 JSON（table_<表名>.json）：
-
-JSON
-{
-  "table": "Table_Name",
-  "description": "Table_Description",
-  "columns": [
-    {
-      "column": "Column_Name",
-      "dataType": "DataType",
-      "description": "Column_Description"
-    }
-  ],
-  "measures": [
-    {
-      "measure": "Measure_Name",
-      "expression": "DAX_Expression",
-      "description": "Measure_Description"
-    }
-  ]
-}
-
 Step 1：識別所需資料表
 仔細閱讀使用者的自然語言需求。
 當需求中出現模糊詞彙時，必須先中斷流程，向使用者確認猜測，待使用者明確回覆後才能繼續。
 
-根據需求中的語意關鍵字，從已拆分的檔名與結構中，初步盲推/判斷哪些「資料表」是回答該問題的核心主角。
+根據需求中的語意關鍵字，從已取得的模型結構中，初步盲推/判斷哪些「資料表」是回答該問題的核心主角。
 
 Step 2：驗證表傳遞與關聯
-開啟 「表與表關聯的 JSON」。
+開啟 「表與表關聯」資料。
 
 檢查 Step 1 選出的多張資料表之間，其關聯性是否有效（檢查 isActive 是否為 true、傳遞方向 crossFilterDirection 以及基數 cardinality 是否能支撐篩選邏輯）。
 
 【發問機制】：若發現表之間沒有關聯、關聯斷掉，或使用者需求語意模糊，此時必須中斷流程，先向使用者發問確認，待確認 OK 後才能進入下一步。
 
 Step 3：提取精準欄位與量值
-關聯確認無誤後，針對確認需要的資料表，精準開啟對應的 「表與行和量值的 JSON」。
+關聯確認無誤後，針對確認需要的資料表，精準開啟對應的 「表與行和量值」資料。
 
 尋找並鎖定計算所需的精確行名稱（Columns）與現有量值（Measures）。若現有量值可複用，優先引用。
 
@@ -305,32 +209,20 @@ Step 4：生成 Power BI REST API 專用 DAX 查詢
 
 Step 5：執行 Power BI REST API 查詢
 
-5.1 將 DAX 查詢寫入暫存檔
-使用 Write 工具，將 Step 4 產生的完整 DAX 查詢語法（不含程式碼區塊標記）寫入 <WORKSPACE_ROOT>/pbi_query/dax_query.txt（使用絕對路徑）。
+> **開發中**：呼叫的 MCP 工具名稱與參數為暫定介面，待後端定案後更新。查詢結果是否落地成本機 CSV 檔案是開放問題（見 CLAUDE.md 開發計畫），本節先以「維持落地」為預設行為，之後依團隊決定調整。
 
-5.2 執行對應觸發腳本
-沿用 Step -1.1 偵測到的作業系統及 Step -1.3 模型選擇流程中記住的 <pbi_config_id>，執行以下對應指令：
+5.1 執行查詢
+呼叫 MCP 工具 `run_dax_query(pbi_config_id, dax)`（暫定名稱），傳入選定的 `pbi_config_id` 與 Step 4 產生的完整 DAX 查詢語法（不含程式碼區塊標記）。Access Token 交換與 Power BI executeQueries 呼叫皆在 MCP connector 內部處理，Skill 不接觸任何 token。
 
-Windows（PowerShell）：
-powershell -File "<SKILL_ROOT>\scripts\windows\trigger_pbi_api.ps1" -WorkspaceRoot "<WORKSPACE_ROOT>" -PbiConfigId "<pbi_config_id>" -DaxQueryFile "<WORKSPACE_ROOT>\pbi_query\dax_query.txt"
+若執行失敗：向使用者說明「查詢執行失敗」，並回報工具回傳的錯誤訊息摘要。若錯誤內容包含伺服器內部的識別碼、密鑰設定等基礎設施細節，不逐字暴露給一般使用者，僅在使用者主動要求查看技術細節時才提供。停止流程。
 
-macOS（bash）：
-bash "<SKILL_ROOT>/scripts/macos/trigger_pbi_api.sh" "<WORKSPACE_ROOT>" "<pbi_config_id>" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt"
-
-Linux（bash）：
-bash "<SKILL_ROOT>/scripts/linux/trigger_pbi_api.sh" "<WORKSPACE_ROOT>" "<pbi_config_id>" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt"
-
-腳本執行成功後，會產生 pbi_query/query_result.csv。
-腳本的標準輸出（stdout）會印出一行 JSON 摘要，格式如下：
-{"success": true, "row_count": N, "csv_path": "pbi_query/query_result.csv"}
-
-5.3 確認並回報結果
-確認 pbi_query/query_result.csv 已成功產生後，向使用者回報：
-- 查詢成功，共 N 筆資料
-- 結果已輸出至：pbi_query/query_result.csv
-- 詢問使用者：「是否需要 Claude 讀取並解讀此 CSV 資料？」
-
-若腳本執行失敗，將 stderr 的錯誤訊息完整回報給使用者後停止。
+5.2 輸出結果
+若執行成功，取得結構化查詢結果（欄位與資料列），接著：
+- 使用 Write 工具，將結果轉換為 CSV 格式，寫入使用者目前工作目錄下的 `pbi_query/query_result.csv`（使用絕對路徑）
+- 向使用者回報：
+  - 查詢成功，共 N 筆資料
+  - 結果已輸出至：`pbi_query/query_result.csv`
+  - 詢問使用者：「是否需要 Claude 讀取並解讀此 CSV 資料？」
 
 輸出格式限制
 嚴禁輸出任何視覺效果建議、圖表軸說明、或多餘的函數教學。輸出以下內容：
