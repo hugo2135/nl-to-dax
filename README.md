@@ -26,7 +26,7 @@
 ## 前置條件
 
 - Python 3.9+（無需額外安裝第三方套件，僅使用標準函式庫）
-- Claude Code CLI（已安裝並登入）
+- **Claude Code CLI 或 VS Code + Claude Code 擴充功能**（不支援 Claude 桌面版／Cowork／claude.ai 網頁版：這些介面的 skill 執行環境是每次對話重新產生的暫存沙盒，設定檔無法持續保存，會導致每次都要重新設定 `PBI_MASK_KEY`）
 - Git（版本提醒功能需要，用於查詢遠端最新版號；未安裝或無法連線時會靜默略過，不影響其他功能）
 
 ---

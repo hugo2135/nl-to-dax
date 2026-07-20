@@ -22,6 +22,17 @@ def check(workspace_root: str) -> dict:
     has_server_url = bool(settings.get('CREDENTIAL_SERVER_URL'))
     has_model = os.path.isfile(os.path.join(pbi_config_dir, "models_index.json"))
 
+    # settings.local.json 的路徑資訊在此一併算好給呼叫端（Claude）直接使用，
+    # 不要讓 Claude 自己判斷/計算相對路徑——那是純推理，容易算錯或生出不存在的路徑。
+    settings_path = skill_settings.get_settings_path(skill_root)
+    settings_path_relative = None
+    try:
+        common = os.path.commonpath([os.path.normcase(settings_path), os.path.normcase(workspace_root)])
+        if os.path.normcase(common) == os.path.normcase(workspace_root):
+            settings_path_relative = os.path.relpath(settings_path, workspace_root).replace(os.sep, '/')
+    except ValueError:
+        pass  # Windows 上不同磁碟機時 commonpath 會丟例外，視為不在 workspace 底下
+
     # 管理員可能隨時變動使用者的「已分配語意模型」，has_model 只代表本地曾經同步過，
     # 不代表清單仍是最新的，因此每日至少強制重新同步一次，避免永遠沿用舊的模型清單。
     last_sync_path = os.path.join(pbi_config_dir, "last_sync.json")
@@ -32,11 +43,13 @@ def check(workspace_root: str) -> dict:
     model_sync_stale = last_synced != datetime.date.today().isoformat()
 
     return {
-        "settings_created":  settings_created,
-        "has_mask_key":      has_mask_key,
-        "has_server_url":    has_server_url,
-        "has_model":         has_model,
-        "model_sync_stale":  model_sync_stale,
+        "settings_created":       settings_created,
+        "has_mask_key":           has_mask_key,
+        "has_server_url":         has_server_url,
+        "has_model":              has_model,
+        "model_sync_stale":       model_sync_stale,
+        "settings_path_absolute": settings_path,
+        "settings_path_relative": settings_path_relative,
     }
 
 

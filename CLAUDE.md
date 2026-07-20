@@ -3,8 +3,14 @@
 ## 版本控制規則
 
 ### 分支策略
-- 單線 `main`，不開 feature branch
-- 直接在 `main` 上提交，保持歷史線性
+- 依「憑證取得方式」維護三條長期分支，服務不同情境（不是短期 feature branch，各自直接在分支上提交，保持歷史線性）：
+  - `solo`：自用模式，直接在 skill 內填 Azure AD `TENANT_ID`/`CLIENT_ID`/`CLIENT_SECRET`，不經過 Server；語意模型結構改用自製的 chunk_model + 說明產生 skill 取得，不依賴 `fetch_model.py`
+  - `server-token`：集團模式現行方案，經 Server 註冊、核發 `PBI_MASK_KEY` 換 Access Token（過渡用，預期未來被 `mcp-oauth` 取代並合併回來）
+  - `mcp-oauth`：集團模式下一代方案，改用 MCP connector + OAuth 認證，skill 完全不接觸任何憑證（開發完成並驗證後，預期合併回來取代 `server-token`）
+- **Step 0～4**（識別資料表、驗證關聯、抽欄位量值、生成 DAX）與 `filters/` 篩選邏輯是三條分支共用的核心推理層，跟認證方式無關：
+  - 這幾個 Step 的修改**一律先在 `solo` 分支進行**，驗證後再 merge/rebase 到 `server-token`、`mcp-oauth`
+  - 嚴禁直接在 `server-token` 或 `mcp-oauth` 上修改這幾個 Step，避免三條分支各自分岔、日後難以合併
+- **Step -1**（環境檢查與認證取得）、**Step 5**（執行查詢的認證串接）是各分支專屬邏輯，不受上述共用限制，各自獨立維護
 
 ### Commit 訊息格式（Conventional Commits）
 ```

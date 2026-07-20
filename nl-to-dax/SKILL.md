@@ -66,18 +66,17 @@ Linux（bash）：
 bash "<SKILL_ROOT>/scripts/linux/trigger_check_setup.sh" "<WORKSPACE_ROOT>"
 
 腳本回傳 JSON 格式如下：
-{"settings_created": bool, "has_mask_key": bool, "has_server_url": bool, "has_model": bool, "model_sync_stale": bool}
+{"settings_created": bool, "has_mask_key": bool, "has_server_url": bool, "has_model": bool, "model_sync_stale": bool, "settings_path_absolute": "...", "settings_path_relative": "..."|null}
 
 -1.3 依回傳結果分支處理
 
 若 has_mask_key = false：
-先用 Read 工具讀取 <SKILL_ROOT>/config/settings.local.json，取得實際的 CREDENTIAL_SERVER_URL 值與該檔案的絕對路徑。
+先用 Read 工具讀取上一步 JSON 回傳的 `settings_path_absolute`（settings.local.json 的實際路徑，位於使用者家目錄下，不是 <SKILL_ROOT>/config/ 底下——skill 執行環境每次對話可能重新產生，設定檔必須放在持續存在的位置），取得實際的 CREDENTIAL_SERVER_URL 值。
 向使用者說明（若 settings_created = true，開頭加一句「已自動建立設定檔。」；不要輸出未解析的 {CREDENTIAL_SERVER_URL} 佔位符）：
 服務網址本身就是合法 URL，直接用 `[實際網址](實際網址)` 呈現即可。
-settings.local.json 的連結目標是本機檔案路徑，file:// 連結在聊天介面點不開，但相對於 <WORKSPACE_ROOT> 的相對路徑連結是可以開啟的（例如 `[README.md](README.md)`）。因此：
-- 先判斷 settings.local.json 的絕對路徑是否位於 <WORKSPACE_ROOT> 之下（例如 skill 安裝在 <WORKSPACE_ROOT>/.claude/skills/nl-to-dax/ 時就是）。
-- 若是：改用相對於 <WORKSPACE_ROOT> 的相對路徑呈現為 Markdown 連結，例如 `[settings.local.json](.claude/skills/nl-to-dax/config/settings.local.json)`。
-- 若否（例如 skill 安裝在使用者層級 ~/.claude/skills/nl-to-dax/，不在 <WORKSPACE_ROOT> 之下）：組不出有效的相對路徑，改為純文字顯示該檔案的實際絕對路徑，不做成連結。
+settings.local.json 的連結**直接使用上一步 JSON 回傳的欄位，不要自己判斷或計算路徑**（自行推算容易算錯、甚至生出不存在的路徑）：
+- 若 `settings_path_relative` 不是 null：直接照抄這個值呈現為 Markdown 連結，例如 `[settings.local.json](settings_path_relative 的值)`。
+- 若 `settings_path_relative` 是 null：改為純文字顯示 `settings_path_absolute` 的值，不做成連結。
 「在開始使用前，您需要完成以下申請流程取得個人金鑰（PBI_MASK_KEY）：
 
 1. 開啟服務網址：[實際網址](實際網址)

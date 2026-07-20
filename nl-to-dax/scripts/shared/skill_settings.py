@@ -36,9 +36,18 @@ def _read_default_credential_server_url(skill_root: str) -> str:
         return f.read().strip()
 
 
+def get_settings_path(skill_root: str) -> str:
+    """settings.local.json 存放在 skill_root/config/ 底下。
+
+    此 skill 限定在 Claude Code（VS Code 擴充功能或 CLI 終端機）中執行，
+    直接操作真實、持續存在的檔案系統，不支援 Claude 桌面版等會話式沙盒環境。
+    """
+    return os.path.join(skill_root, "config", "settings.local.json")
+
+
 def ensure_settings_local(skill_root: str) -> bool:
     """若 config/settings.local.json 不存在則自動建立，回傳是否新建。"""
-    settings_path = os.path.join(skill_root, "config", "settings.local.json")
+    settings_path = get_settings_path(skill_root)
     if os.path.isfile(settings_path):
         return False
     template = {
@@ -53,7 +62,7 @@ def ensure_settings_local(skill_root: str) -> bool:
 
 
 def load_settings(skill_root: str) -> dict:
-    settings_path = os.path.join(skill_root, "config", "settings.local.json")
+    settings_path = get_settings_path(skill_root)
     if not os.path.isfile(settings_path):
         return {}
     with open(settings_path, 'r', encoding='utf-8') as f:

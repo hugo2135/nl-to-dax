@@ -18,11 +18,11 @@ def fetch_credential(workspace_root: str, pbi_config_id: str) -> None:
 
     mask_key = settings.get('PBI_MASK_KEY')
     if not mask_key:
-        raise RuntimeError("設定檔缺少 PBI_MASK_KEY，請確認 config/settings.local.json")
+        raise RuntimeError(f"設定檔缺少 PBI_MASK_KEY，請確認 {skill_settings.get_settings_path(skill_root)}")
 
     api_url = settings.get('CREDENTIAL_SERVER_URL')
     if not api_url:
-        raise RuntimeError("設定檔缺少 CREDENTIAL_SERVER_URL，請確認 config/settings.local.json")
+        raise RuntimeError(f"設定檔缺少 CREDENTIAL_SERVER_URL，請確認 {skill_settings.get_settings_path(skill_root)}")
 
     workspace_root = skill_settings.validate_workspace_root(workspace_root, skill_root)
     configs_path = os.path.join(workspace_root, ".claude", "pbi_configs.json")
