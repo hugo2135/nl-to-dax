@@ -30,7 +30,8 @@
 
 ## 安裝 Skill
 
-把整個 `nl-to-dax/` 目錄放進 Claude 會讀取的 skill 路徑（專案內的 `.claude/skills/nl-to-dax/` 或使用者層級的 `~/.claude/skills/nl-to-dax/`）。
+1. 把整個 `nl-to-dax/` 目錄放進 Claude 會讀取的 skill 路徑（專案內的 `.claude/skills/nl-to-dax/` 或使用者層級的 `~/.claude/skills/nl-to-dax/`）
+2. 複製 `nl-to-dax/config/site_domain.json.example` 為 `nl-to-dax/config/site_domain.json`，將 `site_domain` 欄位填入申請程式（PBI Credential Server）的實際網域（例如 `nl-to-dax.example.com`，不含 `https://` 前綴）
 
 ---
 
@@ -38,8 +39,15 @@
 
 在對話中輸入 `/nl-to-dax`：
 
-- 若尚未連接 MCP connector，Skill 會提示：「請至 Settings → Connectors，新增並連線 nl-to-dax connector，完成帳號登入與 OAuth 授權後，重新執行 `/nl-to-dax`。」
-- 完成授權後重新執行 `/nl-to-dax`，Skill 會自動取得可用模型清單，不需要另外申請或填寫任何金鑰。
+- 若您還沒有申請程式的帳號，Skill 會引導完成以下前置流程：
+  1. 前往申請程式網站完成註冊
+  2. 等待管理員開通帳號
+  3. 等待管理員設定您的 Azure AD 憑證
+  4. 等待管理員指派您可查詢的語意模型
+- 完成以上（或您已經有帳號），Skill 會提示：「請至 Settings → Connectors，新增並連線 nl-to-dax connector，用申請程式帳密完成 OAuth 授權後，重新執行 `/nl-to-dax`。」
+- 授權完成後重新執行 `/nl-to-dax`，Skill 會自動取得可用模型清單，不需要另外申請或填寫任何金鑰。
+
+> **注意**：MCP 的 OAuth 登入畫面不會繞過帳號審核——前置流程（步驟 2-4）由管理員完成前，登入畫面本身就會失敗，這不是連線設定的問題。
 
 ---
 
@@ -50,6 +58,8 @@ nl-to-dax/
 ├── nl-to-dax/                    # Skill 主體目錄（<SKILL_ROOT>）
 │   ├── SKILL.md                  # Skill 執行指令（Claude 讀取）
 │   ├── VERSION                   # 目前版號（major.build，例如 0.1）
+│   ├── config/
+│   │   └── site_domain.json.example  # 申請程式網域範本，安裝時複製為 site_domain.json 並填入實際網域
 │   └── scripts/
 │       └── shared/
 │           ├── check_update.py         # 選用：每日版本檢查（比對遠端 git tag），與認證機制無關

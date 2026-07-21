@@ -5,15 +5,8 @@ description: 根據使用者以中文或英文描述的自然語言需求，透�
 
 # Natural Language to DAX Skill（mcp-oauth 分支）
 
-用途
-根據使用者提供的自然語言需求，透過多階段推理，生成適用於 Power BI REST API 的專用 DAX 查詢語法，透過 nl-to-dax MCP connector 取得語意模型與 Access Token 後，直接對 Power BI REST API 發送查詢、取得結果。認證採 OAuth，Skill 不持有 Azure AD 密鑰等底層憑證；查詢用的 Access Token 僅存在於單次對話的上下文中，絕不寫入本機檔案跨對話持久化。
-
-> 此分支跟 `server-token` 分支（本機 `PBI_MASK_KEY` 方案）的差異僅在 Step -1 的認證方式，以及 Step 5 取得模型資料/執行查詢的管道；Step 0.4、Step 1-4（篩選比對、資料表識別、關聯驗證、欄位量值提取、DAX 生成）的推理邏輯完全共用，修改時請依 CLAUDE.md 的分支策略，先在 `solo` 分支進行。
-
 輸入
-執行此 Skill 時，使用者需提供：
-
-DAX 需求：以中文或英文描述想查詢的資料內容或計算邏輯。
+執行此 Skill 時，使用者需提供 DAX 需求：以中文或英文描述想查詢的資料內容或計算邏輯。
 
 執行步驟
 
@@ -21,10 +14,18 @@ Step -1：認證檢查 (Auth Check)
 
 此 SKILL.md 所在的目錄即為 Skill 根目錄，以下稱 <SKILL_ROOT>。
 
+用 Read 工具讀取 <SKILL_ROOT>/config/site_domain.json 的 `site_domain` 欄位，取得申請程式網域，以下稱 <SITE_DOMAIN>。檔案不存在代表部署未完成，這不是使用者能自行處理的事：告知使用者「此 Skill 尚未完成部署設定，請聯繫管理員」，流程到此停止。
+
 嘗試呼叫 MCP 工具 `list_models`（無參數），取得使用者目前有權限存取的語意模型清單（輕量版，不含完整 relationships/tables）。
 
-若呼叫失敗（尚未連接 MCP connector 或授權已過期）：
-向使用者說明：「這個 Skill 需要先連接 nl-to-dax 的 MCP connector 才能使用。請至 Claude 的 Settings → Connectors，新增並連線 nl-to-dax connector（`https://<SITE_DOMAIN>/mcp`），用申請程式的帳密登入並同意授權後，重新執行 /nl-to-dax。」
+若呼叫失敗（尚未連接 MCP connector 或授權已過期），向使用者說明（MCP 的 OAuth 登入畫面不會繞過帳號審核，未完成申請流程登入畫面會直接失敗，需完整說明）：
+
+「這個 Skill 需要先連接 nl-to-dax 的 MCP connector。若尚未申請帳號：
+1. 前往 [{SITE_DOMAIN}](https://{SITE_DOMAIN}/register) 註冊
+2. 等待管理員開通帳號、設定 Azure AD 憑證、指派可查詢的語意模型
+
+完成以上（或已有帳號）後，請至 Claude 的 Settings → Connectors 新增並連線 nl-to-dax connector（[https://{SITE_DOMAIN}/mcp](https://{SITE_DOMAIN}/mcp)），用申請程式帳密登入並授權後重新執行 /nl-to-dax。」
+
 流程到此停止。
 
 若呼叫成功：回傳內容為 `list[dict]`，每筆至少包含 `pbi_config_id`、`pbi_config_name`、`model_version`、`model_description`（可能為 null）、`table_count`。直接進入「模型選擇流程」。
@@ -46,7 +47,7 @@ python "<SKILL_ROOT>\scripts\shared\check_update.py"
 2. 若只有一個模型 → 自動選定，告知使用者：「使用模型：{pbi_config_name}」
 3. 若有多個模型 → 列出所有模型名稱供使用者選擇，等待使用者指定後繼續
 4. 記住選定的 `pbi_config_id`，後續步驟皆使用此 ID
-5. 呼叫 MCP 工具 `get_model_detail(pbi_config_id)`，取得該模型完整的 `relationships`、`tables`、`workspace_id`、`dataset_id`、`filters`（管理員於 `/admin/pbi-configs` 維護的篩選規則，見 Step 0.4）。**這一步一定要做**，不論該模型的 `model_description` 有沒有值都要呼叫——`model_description` 只是省略「自己分析、產生概覽文字」這個推理步驟，Step 0-4 的 DAX 生成推理（含篩選比對）、以及 Step 5 執行查詢所需的 `workspace_id`/`dataset_id`，都需要這裡取得的資料，且只需呼叫這一次、後續步驟直接複用。
+5. 呼叫 MCP 工具 `get_model_detail(pbi_config_id)`，取得 `relationships`、`tables`、`workspace_id`、`dataset_id`、`filters`（Step 0.4 篩選規則）。**不論 `model_description` 有沒有值都要呼叫**——Step 0-5 都需要這裡的資料，只呼叫這一次、後續複用。
    - 若使用者沒有該 `pbi_config_id` 的存取權，此工具會回傳 tool error，向使用者說明「無法取得此模型的存取權限，請聯繫管理員確認」，停止流程。
 6. 記住 `workspace_id`、`dataset_id`，Step 5 會用到。
 7. 執行「模型概覽展示流程」（見下方），再詢問使用者：「您想查詢什麼？」
@@ -91,7 +92,7 @@ python "<SKILL_ROOT>\scripts\shared\check_update.py"
 
 Step 0：載入語意模型結構 (Load Semantic Model)
 
-「模型選擇流程」步驟 5 呼叫 `get_model_detail` 時已經取得選定模型的 relationships 與 tables 結構化資料，不需要再另外呼叫工具或讀取本機檔案（`server-token` 分支的 `pbi_config/` 本機快取機制在此分支已移除，每次都是即時資料，不落地快取）。資料格式如下：
+「模型選擇流程」已取得 relationships 與 tables，不需要再另外呼叫工具。資料格式如下：
 
 表與表關聯（relationships）：
 
@@ -208,7 +209,7 @@ Step 5：執行 Power BI REST API 查詢
 
 > 查詢結果是否落地成本機 CSV 檔案是開放問題（見 CLAUDE.md 開發計畫），本節先以「維持落地」為預設行為，之後依團隊決定調整。
 
-**重要架構說明**：Server 端只提供 `get_powerbi_token` 取得 Power BI access token，**不提供執行查詢的 MCP 工具**——DAX 查詢是 Skill 自己直接對 Power BI 的 `executeQueries` REST API 發送請求，不經過 nl-to-dax 的 Server（刻意設計，避免多個使用者併發查詢時互相卡住 Server 的同步呼叫）。
+Server 只提供 `get_powerbi_token` 換發 token，DAX 查詢由 Skill 自己直接對 Power BI 的 `executeQueries` API 發送（架構原因見 CLAUDE.md 開發計畫）。
 
 5.1 取得 Access Token（對話內快取，避免重複呼叫）
 檢查本次對話中，選定的 `pbi_config_id` 是否已經有尚未過期的 access token（記住上次取得的時間點與 `expires_in`，預留 1-2 分鐘安全邊界）：
@@ -217,7 +218,7 @@ Step 5：執行 Power BI REST API 查詢
 
 若 `get_powerbi_token` 失敗（tool error，可能原因：無存取權、Azure AD 憑證未設定、Azure AD 驗證失敗）：向使用者說明「Access Token 取得失敗，請聯繫管理員確認您的 Azure AD 憑證與模型存取權限設定」，停止流程。不要逐字暴露 tool error 的原始錯誤內容給一般使用者（可能包含基礎設施細節），僅在使用者主動要求查看技術細節時才提供。
 
-**此 access token 只能存在於本次對話的上下文中，絕對不可以寫入任何本機檔案跨對話持久化**——這正是 MCP 化要解決的問題（sandbox 環境每次對話重置，本機檔案留不住任何東西）。
+**此 access token 只能存在於本次對話的上下文中，絕對不可以寫入任何本機檔案跨對話持久化。**
 
 5.2 執行查詢
 使用 Write 工具，將 Step 4 產生的完整 DAX 查詢語法（不含程式碼區塊標記）寫入使用者目前工作目錄下的 `pbi_query/dax_query.txt`（使用絕對路徑）。
