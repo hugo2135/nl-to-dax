@@ -6,6 +6,20 @@
 
 ---
 
+## 分支說明
+
+此 Skill 依「憑證取得方式」維護三條分支，服務不同情境：
+
+| 分支 | 適用情境 | 認證方式 |
+|------|----------|----------|
+| `solo` | 自用／個人使用，不經過集中管理的 Server | 直接在 Skill 內填寫 Azure AD Tenant ID / Client ID / Client Secret |
+| `server-token` | 集團／多人使用，舊方案 | 向 Server 申請 `PBI_MASK_KEY`，換取 Access Token |
+| `mcp-oauth` | 集團／多人使用，現行方案 | MCP connector + OAuth，Skill 不接觸任何憑證 |
+
+以下內容說明的是**`server-token` 分支**的安裝與使用方式。
+
+---
+
 ## 功能概覽
 
 | 功能 | 說明 |
