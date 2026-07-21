@@ -1,8 +1,22 @@
-# nl-to-dax
+# nl-to-dax（solo 分支）
 
 自然語言轉 DAX 查詢的 Claude Code Skill，針對 Power BI REST API 設計。輸入需求描述，自動完成環境初始化、模型同步、關聯驗證、篩選套用，直接呼叫 API 並輸出 CSV 結果。語意模型由申請程式集中管理，首次使用自動同步至本地。
 
 > 本倉庫為內部部署版本：`config/default_credential_server_url.txt` 已預先填好服務網址，使用者只需要申請個人的 `PBI_MASK_KEY`，不需要另外詢問管理員網址。
+
+---
+
+## 分支說明
+
+此 Skill 依「憑證取得方式」維護三條分支，服務不同情境：
+
+| 分支 | 適用情境 | 認證方式 |
+|------|----------|----------|
+| `solo` | 自用／個人使用，不經過集中管理的 Server | 直接在 Skill 內填寫 Azure AD Tenant ID / Client ID / Client Secret |
+| `server-token` | 集團／多人使用，舊方案 | 向 Server 申請 `PBI_MASK_KEY`，換取 Access Token |
+| `mcp-oauth` | 集團／多人使用，現行方案 | MCP connector + OAuth，Skill 不接觸任何憑證 |
+
+以下內容說明的是**本分支（`solo`）**的安裝與使用方式。
 
 ---
 
