@@ -50,10 +50,6 @@ nl-to-dax/
 ├── nl-to-dax/                    # Skill 主體目錄（<SKILL_ROOT>）
 │   ├── SKILL.md                  # Skill 執行指令（Claude 讀取）
 │   ├── VERSION                   # 目前版號（major.build，例如 0.1）
-│   ├── filters/                  # DAX 篩選設定檔
-│   │   ├── default_order.json    # 預設訂單篩選（常態啟用）
-│   │   ├── investigation.json    # 排查模式（覆蓋預設篩選）
-│   │   └── refund_analysis.json  # 退費分析模式（覆蓋預設篩選）
 │   └── scripts/
 │       └── shared/
 │           ├── check_update.py         # 選用：每日版本檢查（比對遠端 git tag），與認證機制無關
@@ -87,15 +83,7 @@ Skill 自動完成：MCP 認證檢查（`list_models`）→ 模型選擇與取�
 
 ## 篩選設定檔
 
-篩選設定檔（`filters/*.json`）用於在生成 DAX 時自動套用業務規則篩選條件，與認證方式無關，三條分支（`solo`/`server-token`/`mcp-oauth`）共用同一套邏輯。
-
-| 設定檔 | 常態啟用 | 觸發關鍵字 | 說明 |
-|--------|----------|------------|------|
-| `default_order.json` | 是 | — | 排除倉庫調撥、退費、取消等非銷售訂單 |
-| `investigation.json` | 否 | 排查、調查、異常、debug… | 覆蓋預設篩選，顯示完整資料 |
-| `refund_analysis.json` | 否 | 退費、退款、refund… | 覆蓋預設篩選，僅顯示退費相關訂單 |
-
-新增篩選設定檔只需在 `filters/` 資料夾中新增符合格式的 JSON 檔，Skill 會在下次執行時自動載入。
+篩選規則用於在生成 DAX 時自動套用業務規則篩選條件。比對演算法（收集常態篩選、依關鍵字比對情境篩選、決定最終篩選集）三條分支（`solo`/`server-token`/`mcp-oauth`）共用同一套邏輯，但**本分支的篩選規則不再是本機 `filters/*.json` 檔案**，改由管理員於申請程式的 `/admin/pbi-configs` 集中維護，透過 `get_model_detail` 這支 MCP 工具的 `filters` 欄位取得。新增或調整篩選規則請洽管理員，不需要修改 Skill 本身。
 
 ---
 

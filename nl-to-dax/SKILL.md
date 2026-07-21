@@ -46,7 +46,7 @@ python "<SKILL_ROOT>\scripts\shared\check_update.py"
 2. 若只有一個模型 → 自動選定，告知使用者：「使用模型：{pbi_config_name}」
 3. 若有多個模型 → 列出所有模型名稱供使用者選擇，等待使用者指定後繼續
 4. 記住選定的 `pbi_config_id`，後續步驟皆使用此 ID
-5. 呼叫 MCP 工具 `get_model_detail(pbi_config_id)`，取得該模型完整的 `relationships`、`tables`、`workspace_id`、`dataset_id`。**這一步一定要做**，不論該模型的 `model_description` 有沒有值都要呼叫——`model_description` 只是省略「自己分析、產生概覽文字」這個推理步驟，Step 0-4 的 DAX 生成推理、以及 Step 5 執行查詢所需的 `workspace_id`/`dataset_id`，都需要這裡取得的資料，且只需呼叫這一次、後續步驟直接複用。
+5. 呼叫 MCP 工具 `get_model_detail(pbi_config_id)`，取得該模型完整的 `relationships`、`tables`、`workspace_id`、`dataset_id`、`filters`（管理員於 `/admin/pbi-configs` 維護的篩選規則，見 Step 0.4）。**這一步一定要做**，不論該模型的 `model_description` 有沒有值都要呼叫——`model_description` 只是省略「自己分析、產生概覽文字」這個推理步驟，Step 0-4 的 DAX 生成推理（含篩選比對）、以及 Step 5 執行查詢所需的 `workspace_id`/`dataset_id`，都需要這裡取得的資料，且只需呼叫這一次、後續步驟直接複用。
    - 若使用者沒有該 `pbi_config_id` 的存取權，此工具會回傳 tool error，向使用者說明「無法取得此模型的存取權限，請聯繫管理員確認」，停止流程。
 6. 記住 `workspace_id`、`dataset_id`，Step 5 會用到。
 7. 執行「模型概覽展示流程」（見下方），再詢問使用者：「您想查詢什麼？」
@@ -133,7 +133,7 @@ JSON
 }
 
 Step 0.4：載入並比對篩選設定檔 (Load & Match Filter Profiles)
-掃描 <SKILL_ROOT>/filters/ 資料夾，讀取所有 .json 篩選設定檔。每份設定檔的結構如下：
+使用「模型選擇流程」呼叫 `get_model_detail` 時已取得的 `filters` 欄位（陣列，管理員於申請程式 `/admin/pbi-configs` 集中維護，不再讀本機檔案）。每筆設定的結構如下：
 
 JSON
 {
