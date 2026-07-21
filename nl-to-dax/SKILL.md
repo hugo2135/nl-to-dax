@@ -14,17 +14,21 @@ Step -1：認證檢查 (Auth Check)
 
 此 SKILL.md 所在的目錄即為 Skill 根目錄，以下稱 <SKILL_ROOT>。
 
-用 Read 工具讀取 <SKILL_ROOT>/config/site_domain.json 的 `site_domain` 欄位，取得申請程式網域，以下稱 <SITE_DOMAIN>。檔案不存在代表部署未完成，這不是使用者能自行處理的事：告知使用者「此 Skill 尚未完成部署設定，請聯繫管理員」，流程到此停止。
+用 Read 工具讀取 <SKILL_ROOT>/config/site_domain.json 的 `site_domain` 欄位，取得申請程式網域，以下稱 <SITE_DOMAIN>。檔案不存在代表部署未完成，這不是使用者能自行處理的事：僅告知使用者「請聯繫管理員協助」，流程到此停止。
 
 嘗試呼叫 MCP 工具 `list_models`（無參數），取得使用者目前有權限存取的語意模型清單（輕量版，不含完整 relationships/tables）。
 
 若呼叫失敗（尚未連接 MCP connector 或授權已過期），向使用者說明（MCP 的 OAuth 登入畫面不會繞過帳號審核，未完成申請流程登入畫面會直接失敗，需完整說明）：
 
 「這個 Skill 需要先連接 nl-to-dax 的 MCP connector。若尚未申請帳號：
-1. 前往 [{SITE_DOMAIN}](https://{SITE_DOMAIN}/register) 註冊
-2. 等待管理員開通帳號、設定 Azure AD 憑證、指派可查詢的語意模型
-
-完成以上（或已有帳號）後，請至 Claude 的 Settings → Connectors 新增並連線 nl-to-dax connector（[https://{SITE_DOMAIN}/mcp](https://{SITE_DOMAIN}/mcp)），用申請程式帳密登入並授權後重新執行 /nl-to-dax。」
+1. 若還沒有帳號則前往 [{SITE_DOMAIN}](https://{SITE_DOMAIN}/register) 註冊
+2. 通知並等待管理員開通帳號
+3. 帳號開通後，請新增MCP Server
+  - 名稱：nl-to-dax_credential-server
+  - URL：https://{SITE_DOMAIN}/mcp
+  等待自動開啟頁面後申請好的帳密登入
+4. 重新執行 /nl-to-dax。(如果使用CLI則需要重開對話)
+」
 
 流程到此停止。
 
@@ -216,7 +220,7 @@ Server 只提供 `get_powerbi_token` 換發 token，DAX 查詢由 Skill 自己�
 - 有效 → 直接複用，跳到 5.2
 - 沒有或已過期 → 呼叫 MCP 工具 `get_powerbi_token(pbi_config_id)`，取得新的 `access_token`/`expires_in`，記住取得時間
 
-若 `get_powerbi_token` 失敗（tool error，可能原因：無存取權、Azure AD 憑證未設定、Azure AD 驗證失敗）：向使用者說明「Access Token 取得失敗，請聯繫管理員確認您的 Azure AD 憑證與模型存取權限設定」，停止流程。不要逐字暴露 tool error 的原始錯誤內容給一般使用者（可能包含基礎設施細節），僅在使用者主動要求查看技術細節時才提供。
+若 `get_powerbi_token` 失敗 ：向使用者說明「Access Token 取得失敗，請聯繫管理員處理」，停止流程。不要逐字暴露 tool error 的原始錯誤內容給一般使用者（可能包含基礎設施細節），僅在使用者主動要求查看技術細節時才提供。
 
 **此 access token 只能存在於本次對話的上下文中，絕對不可以寫入任何本機檔案跨對話持久化。**
 
