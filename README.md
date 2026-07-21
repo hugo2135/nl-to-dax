@@ -1,120 +1,120 @@
-# nl-to-dax（mcp-oauth 分支）
+# nl-to-dax (mcp-oauth branch)
 
-自然語言轉 DAX 查詢的 Claude Skill，針對 Power BI REST API 設計，透過多階段推理生成並執行 DAX 查詢。
+A Claude Skill that turns natural-language requests into DAX queries, built for the Power BI REST API, generating and executing the query through multi-stage reasoning.
 
-## 分支說明
+## Branches
 
-此 Skill 依「憑證取得方式」維護三條分支，服務不同情境：
+This skill is maintained across three branches, split by how credentials are obtained, for different deployment scenarios:
 
-| 分支 | 適用情境 | 認證方式 |
-|------|----------|----------|
-| `solo` | 自用／個人使用，不經過集中管理的 Server | 直接在 Skill 內填寫 Azure AD Tenant ID / Client ID / Client Secret |
-| `server-token` | 集團／多人使用，現行方案 | 向 Server 申請 `PBI_MASK_KEY`，換取 Access Token |
-| `mcp-oauth` | 集團／多人使用，下一代方案 | MCP connector + OAuth，Skill 不接觸任何憑證 |
+| Branch | Use case | Authentication |
+|---|---|---|
+| `solo` | Personal/self-service use, no centralized Server | Azure AD Tenant ID / Client ID / Client Secret configured directly in the skill |
+| `server-token` | Team/org use, current approach | Request a `PBI_MASK_KEY` from the Server, exchanged for an access token |
+| `mcp-oauth` | Team/org use, next-generation approach | MCP connector + OAuth — the skill never touches any credential |
 
-以下內容說明**本分支（`mcp-oauth`）**的安裝與使用方式。認證採 MCP connector + OAuth，不需要另外申請或填寫任何金鑰。
-
----
-
-## 功能概覽
-
-| 功能 | 說明 |
-|------|------|
-| MCP 認證 | 透過 Claude 的 Settings → Connectors 完成 OAuth 授權，Skill 不持有 Azure AD 密鑰 |
-| 多模型支援 | 支援多個 Power BI 資料集，啟動時列出可用模型供選擇 |
-| 模型概覽展示 | 優先使用管理員預先撰寫的模型說明（省 token）；沒有則自動彙整資料表與量值 |
-| 智慧篩選套用 | 依據需求關鍵字自動比對篩選設定檔，套用至 DAX 查詢 |
-| 關聯驗證 | 自動驗證資料表間的關聯有效性，缺口時主動發問 |
-| DAX 生成 | 輸出符合 Power BI REST API 規格的完整查詢語法（含 `EVALUATE`） |
-| API 執行 | 用 MCP 取得的 Access Token，直接對 Power BI REST API 發送查詢；Token 僅存在單次對話中，不落地、不跨對話持久化 |
+The following describes **this branch (`mcp-oauth`)**'s installation and usage. Authentication is MCP connector + OAuth — no key of any kind to apply for or fill in.
 
 ---
 
-## 前置條件
+## Features
 
-- Claude（支援 MCP connector 的介面，例如 Claude Code、Claude Apps）
-- 已連接 nl-to-dax 的 MCP connector（Settings → Connectors）
-- Git（僅供選用的 Skill 版本檢查功能使用；未安裝或無法連線時會靜默略過，不影響主要功能）
-
----
-
-## 安裝 Skill
-
-1. 把整個 `nl-to-dax/` 目錄放進 Claude 會讀取的 skill 路徑（專案內的 `.claude/skills/nl-to-dax/` 或使用者層級的 `~/.claude/skills/nl-to-dax/`）
-2. 複製 `nl-to-dax/config/site_domain.json.example` 為 `nl-to-dax/config/site_domain.json`，將 `site_domain` 欄位填入申請程式（PBI Credential Server）的實際網域（例如 `nl-to-dax.example.com`，不含 `https://` 前綴）
-
----
-
-## 初次設定
-
-在對話中輸入 `/nl-to-dax`，若尚未連接 MCP connector，Skill 會引導完成：
-
-1. 若還沒有申請程式的帳號，前往網站完成註冊
-2. 通知並等待管理員開通帳號
-3. 帳號開通後，於 Claude 新增 MCP Server：
-   - 名稱：`nl-to-dax_credential-server`
-   - URL：`https://{申請程式網域}/mcp`
-   - 等待自動開啟的登入頁面，用申請程式帳密登入
-4. 重新執行 `/nl-to-dax`（使用 CLI 需重開對話才會生效）
-
-> **注意**：帳號開通只是前置條件之一，管理員也需要完成 Azure AD 憑證設定與語意模型指派，登入畫面才會成功——這不是連線設定的問題，是後端尚未設定完成，請聯繫管理員確認。
+| Feature | Description |
+|---|---|
+| MCP authentication | OAuth authorization completes in Claude's Settings → Connectors; the skill never holds Azure AD secrets |
+| Multi-model support | Supports multiple Power BI datasets; lists available models at startup |
+| Model overview | Prefers the admin-authored model description (token-efficient); falls back to auto-summarizing tables and measures |
+| Smart filter application | Matches request keywords against filter rules and applies them to the DAX query |
+| Relationship validation | Automatically validates table relationships; asks the user when there's a gap |
+| DAX generation | Emits complete, REST-API-compliant queries (including `EVALUATE`) |
+| API execution | Sends queries directly to the Power BI REST API using the MCP-issued access token; the token exists only within a single conversation — never persisted, never carried across conversations |
 
 ---
 
-## 目錄結構
+## Requirements
+
+- Claude, in any MCP-connector-capable interface (e.g., Claude Code, Claude Apps)
+- The nl-to-dax MCP connector added under Settings → Connectors
+- Git (optional; used only for the skill's version-check feature, unrelated to authentication; silently skipped if unavailable or offline)
+
+---
+
+## Installation
+
+1. Place the entire `nl-to-dax/` directory in a path Claude reads for skills (project-level `.claude/skills/nl-to-dax/` or user-level `~/.claude/skills/nl-to-dax/`)
+2. Copy `nl-to-dax/config/site_domain.json.example` to `nl-to-dax/config/site_domain.json`, and fill in the `site_domain` field with the credential application server's actual domain (e.g. `nl-to-dax.example.com`, no `https://` prefix)
+
+---
+
+## First-time setup
+
+Type `/nl-to-dax` in a conversation — if the MCP connector isn't connected yet, the skill walks you through it:
+
+1. If you don't have an account on the credential application server yet, register on the site
+2. Notify and wait for admin approval
+3. Once approved, add the MCP server in Claude:
+   - Name: `nl-to-dax_credential-server`
+   - URL: `https://{credential-server-domain}/mcp`
+   - Wait for the login page that opens automatically, and log in with your credential-server account
+4. Re-run `/nl-to-dax` (CLI users: start a new conversation for it to take effect)
+
+> **Note**: account approval is only one prerequisite — the admin must also complete Azure AD credential setup and semantic model assignment before login succeeds. If login fails after approval, it isn't a connection-setup issue, it's a backend-configuration matter — please check with the admin.
+
+---
+
+## Directory structure
 
 ```
 nl-to-dax/
-├── nl-to-dax/                    # Skill 主體目錄（<SKILL_ROOT>）
-│   ├── SKILL.md                  # Skill 執行指令（Claude 讀取）
-│   ├── VERSION                   # 目前版號（major.build，例如 0.1）
+├── nl-to-dax/                    # Skill root directory (<SKILL_ROOT>)
+│   ├── SKILL.md                  # Skill instructions (read by Claude)
+│   ├── VERSION                   # Current version (major.build, e.g. 0.1)
 │   ├── config/
-│   │   └── site_domain.json.example  # 申請程式網域範本，安裝時複製為 site_domain.json 並填入實際網域
+│   │   └── site_domain.json.example  # Credential-server domain template; copy to site_domain.json on install and fill in the actual domain
 │   └── scripts/
 │       └── shared/
-│           ├── check_update.py         # 選用：每日版本檢查（比對遠端 git tag），與認證機制無關
-│           └── execute_dax_query.py    # 用 MCP 取得的 Access Token，直接對 Power BI executeQueries API 送查詢
+│           ├── check_update.py         # Optional: daily version check (compares remote git tags), unrelated to authentication
+│           └── execute_dax_query.py    # Sends the query directly to the Power BI executeQueries API using the MCP-issued access token
 └── README.md
 ```
 
-執行期間可能自動產生（不納入版本控制）：
+Generated at runtime (not version controlled):
 
 ```
-<使用者目前工作目錄>/
+<your current working directory>/
 └── pbi_query/
-    └── query_result.csv          # 查詢結果
+    └── query_result.csv          # Query result
 ```
 
-> 語意模型結構（`relationships`/`tables`）與查詢結果皆透過 MCP connector 即時取得，不落地為本機快取檔案。
+> Semantic model structure (`relationships`/`tables`) and query results are both fetched in real time through the MCP connector — nothing is persisted to a local cache file.
 
 ---
 
-## 使用方式
+## Usage
 
-在 Claude 中輸入 `/nl-to-dax`，描述您想查詢的資料需求（中英文皆可）：
+Type `/nl-to-dax` in Claude and describe the data you need (Chinese or English):
 
 ```
-範例：列出各縣市的本月訂單數量與總金額，依縣市排序
+Example: list monthly order count and total amount by city, sorted by city
 ```
 
-Skill 自動完成：MCP 認證檢查（`list_models`）→ 模型選擇與取得完整結構（`get_model_detail`）→ 模型概覽展示 → DAX 生成 → 取得 Access Token（`get_powerbi_token`，同一對話內快取複用）→ 直接對 Power BI 執行查詢 → 輸出結果。
+The skill automatically runs: MCP auth check (`list_models`) → model selection and full structure retrieval (`get_model_detail`) → model overview → DAX generation → access token acquisition (`get_powerbi_token`, cached within the same conversation) → direct query execution against Power BI → results output.
 
 ---
 
-## 篩選設定檔
+## Filter rules
 
-篩選規則用於在生成 DAX 時自動套用業務規則篩選條件，由管理員於申請程式的 `/admin/pbi-configs` 集中維護，透過 `get_model_detail` 這支 MCP 工具的 `filters` 欄位取得。新增或調整篩選規則請洽管理員，不需要修改 Skill 本身。
-
----
-
-## 版本更新
-
-Skill 每日最多向遠端倉庫查詢一次最新版號（比對 git tag），若偵測到有更新版本會簡短提醒一次，不會中斷查詢流程。
+Filter rules automatically apply business-rule filters when generating DAX. They're centrally maintained by admins at `/admin/pbi-configs` on the credential application server, and retrieved through the `filters` field of the `get_model_detail` MCP tool. To add or adjust filter rules, contact an admin — no modification to the skill itself is needed.
 
 ---
 
-## 注意事項
+## Updates
 
-- Skill 不持有 Azure AD 密鑰等底層憑證；查詢用的 Access Token 由 `get_powerbi_token` 取得後僅存在單次對話的上下文中，絕不寫入本機檔案跨對話持久化
-- 語意模型與查詢結果皆為即時取得，管理員異動使用者的已分配模型時不會有本機快取過期的問題
-- Server 端不執行查詢，只換發 Access Token；DAX 查詢由 Skill 用 `execute_dax_query.py` 直接對 Power BI REST API 發送請求，避免多使用者併發查詢卡住 Server
+The skill queries the remote repository for the latest version tag at most once a day (comparing git tags); if a newer version is detected, it gives a brief one-time reminder without interrupting the query flow.
+
+---
+
+## Notes
+
+- The skill holds no underlying credentials such as Azure AD secrets; the access token obtained via `get_powerbi_token` exists only within the context of a single conversation, and is never written to a local file or persisted across conversations
+- Semantic models and query results are both fetched in real time; there's no local-cache staleness issue when admins change a user's assigned models
+- The Server does not execute queries — it only issues access tokens; DAX queries are sent directly to the Power BI REST API by the skill via `execute_dax_query.py`, so concurrent queries from multiple users can't block the Server
