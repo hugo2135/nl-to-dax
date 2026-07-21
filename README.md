@@ -2,8 +2,6 @@
 
 A Claude Code Skill that turns natural-language requests into DAX queries, built for the Power BI REST API. Describe what you need and the skill handles environment setup, model sync, relationship validation, and filter application, then calls the API directly and writes the result to CSV. Semantic models are centrally managed by the credential application server and synced locally on first use.
 
-> This repository is an internal deployment: `config/default_credential_server_url.txt` is pre-filled with the server URL, so users only need to apply for their own `PBI_MASK_KEY` — no need to ask an admin for the URL.
-
 ---
 
 ## Branches
@@ -88,7 +86,7 @@ nl-to-dax/
 │   ├── SKILL.md                        # Skill instructions (read by Claude)
 │   ├── VERSION                         # Current version (major.build, e.g. 0.1)
 │   ├── config/
-│   │   └── default_credential_server_url.txt   # This repo's default server URL (seeded into settings.local.json on first creation)
+│   │   └── default_credential_server_url.txt   # Configurate MCP server URL
 │   ├── filters/                        # DAX filter config files
 │   │   ├── default_order.json          # Default order filter (always active)
 │   │   ├── investigation.json          # Investigation mode (overrides the default filter)

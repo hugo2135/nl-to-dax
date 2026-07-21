@@ -2,8 +2,6 @@
 
 自然語言轉 DAX 查詢的 Claude Code Skill，針對 Power BI REST API 設計。輸入需求描述，自動完成環境初始化、模型同步、關聯驗證、篩選套用，直接呼叫 API 並輸出 CSV 結果。語意模型由申請程式集中管理，首次使用自動同步至本地。
 
-> 本倉庫為內部部署版本：`config/default_credential_server_url.txt` 已預先填好服務網址，使用者只需要申請個人的 `PBI_MASK_KEY`，不需要另外詢問管理員網址。
-
 ---
 
 ## 分支說明
@@ -88,7 +86,7 @@ nl-to-dax/
 │   ├── SKILL.md                        # Skill 執行指令（Claude 讀取）
 │   ├── VERSION                         # 目前版號（major.build，例如 0.1）
 │   ├── config/
-│   │   └── default_credential_server_url.txt   # 本倉庫預設服務網址（settings.local.json 首次建立時帶入）
+│   │   └── default_credential_server_url.txt   # 設定MCP服務網址
 │   ├── filters/                        # DAX 篩選設定檔
 │   │   ├── default_order.json          # 預設訂單篩選（常態啟用）
 │   │   ├── investigation.json          # 排查模式（覆蓋預設篩選）
