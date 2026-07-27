@@ -1,8 +1,6 @@
 # nl-to-dax（solo 分支）
 
-自然語言轉 DAX 查詢的 Claude Code Skill，針對 Power BI REST API 設計。輸入需求描述，自動完成環境初始化、模型同步、關聯驗證、篩選套用，直接呼叫 API 並輸出 CSV 結果。語意模型由申請程式集中管理，首次使用自動同步至本地。
-
-> 本倉庫為內部部署版本：`config/default_credential_server_url.txt` 已預先填好服務網址，使用者只需要申請個人的 `PBI_MASK_KEY`，不需要另外詢問管理員網址。
+自然語言轉 DAX 查詢的 Claude Code Skill，針對 Power BI REST API 設計。輸入需求描述，自動完成環境初始化、關聯驗證、篩選套用，直接呼叫 API 並輸出 CSV 結果。此分支為自用模式：Azure AD 憑證直接設定在本機，不經過任何中央 Server；語意模型結構由您自行透過瀏覽器 F12 擷取後轉換取得。
 
 ---
 
@@ -24,24 +22,24 @@
 
 | 功能 | 說明 |
 |------|------|
-| 自動初始化 | 啟動時檢查環境，自動建立設定檔（服務網址已預填）並引導完成金鑰申請流程 |
+| 自用免 Server | Azure AD 憑證直接設定在本機檔案，不需要申請帳號或金鑰 |
 | 多模型支援 | 支援多個 Power BI 資料集，啟動時列出可用模型供選擇 |
 | 模型概覽展示 | 取得 Token 後自動彙整模型中的資料表與量值，讓使用者了解可查詢範圍 |
 | 智慧篩選套用 | 依據需求關鍵字自動比對篩選設定檔，套用至 DAX 查詢 |
 | 關聯驗證 | 自動驗證資料表間的關聯有效性，缺口時主動發問 |
 | DAX 生成 | 輸出符合 Power BI REST API 規格的完整查詢語法（含 `EVALUATE`） |
-| API 直接執行 | Server 統一處理 Azure AD 驗證，Skill 直接使用 access token 執行查詢並輸出 CSV |
+| API 直接執行 | 直接以 Azure AD 服務主體換取 Access Token 並執行查詢、輸出 CSV |
 | 版本提醒 | 每日至多檢查一次是否有新版本，有更新時簡短提醒，不中斷使用 |
 | 環境自檢 | 執行前先確認 Python 版本與所需標準函式庫模組皆可用，異常時清楚告知原因 |
-| 每日模型重新同步 | 管理員異動使用者的已分配模型後，最晚隔天即自動重新同步，不會卡在舊清單 |
 
 ---
 
 ## 前置條件
 
 - Python 3.9+（無需額外安裝第三方套件，僅使用標準函式庫）
-- **Claude Code CLI 或 VS Code + Claude Code 擴充功能**（不支援 Claude 桌面版／Cowork／claude.ai 網頁版：這些介面的 skill 執行環境是每次對話重新產生的暫存沙盒，設定檔無法持續保存，會導致每次都要重新設定 `PBI_MASK_KEY`）
+- **Claude Code CLI 或 VS Code + Claude Code 擴充功能**（不支援 Claude 桌面版／Cowork／claude.ai 網頁版：這些介面的 skill 執行環境是每次對話重新產生的暫存沙盒，設定檔無法持續保存）
 - Git（版本提醒功能需要，用於查詢遠端最新版號；未安裝或無法連線時會靜默略過，不影響其他功能）
+- 一組具備 Power BI API 存取權限的 Azure AD 服務主體（App Registration），且該服務主體已被加入目標 Power BI workspace 的成員
 
 ---
 
@@ -58,25 +56,35 @@
 
 ## 初次設定
 
-### 步驟一：執行 Skill 觸發自動建檔
+以下兩件事互不依賴，順序不拘，兩者都完成後才能查詢：
 
-在 Claude Code 中輸入 `/nl-to-dax`：
+### 一、憑證設定
 
-- Skill 自動建立 `<SKILL_ROOT>/config/settings.local.json`（`CREDENTIAL_SERVER_URL` 已預填本倉庫設定的服務網址，`PBI_MASK_KEY` 留空）
-- 提示您前往服務網址完成註冊，取得個人專屬的 `PBI_MASK_KEY`
+1. 複製 `<SKILL_ROOT>/config/azure_ad_credentials.json.example` 為同目錄下的 `azure_ad_credentials.json`
+2. 自行在編輯器中填入 Azure AD 服務主體的 `tenant_id`/`client_id`/`client_secret`（`credentials.default` 底下）
+3. 對每個要查詢的模型，在 `models` 底下以該模型的 `dataset_id` 為 key 新增一筆，填入 `dataset_name`（顯示名稱）與 `workspace_id`（可從 Power BI 服務的報表網址或工作區設定取得）
 
-### 步驟二：申請帳號並取得金鑰
+> **`tenant_id`/`client_id`/`client_secret` 屬於敏感憑證，請勿提供給 Claude 讀取或代填**——Claude 不會、也不能用 Read/Edit 工具存取這個檔案，這三個欄位需要您自己填寫。`dataset_id`/`workspace_id`/`dataset_name` 不是機密資訊，Claude 可以在對話中看到並使用。
 
-1. 點選「立即註冊」，填入 Email 與密碼後送出申請
-2. 等待管理員開通帳號
-3. 開通後登入，進入個人頁面點選「領取 PBI_MASK_KEY」
-4. 金鑰只顯示一次，請立即複製並妥善保存
+### 二、取得語意模型結構
 
-### 步驟三：填入金鑰並重新執行
+這個 Skill 不會、也不能自動連進 Power BI 把模型結構匯出——您需要用瀏覽器開發者工具手動擷取：
 
-取得金鑰後，可以直接提供給 Claude 代為寫入設定檔，或自行編輯 `settings.local.json` 填入 `PBI_MASK_KEY`。完成後重新執行 `/nl-to-dax`，Skill 會自動同步語意模型並取得 Access Token。
+1. 用瀏覽器打開該 Power BI 報表頁面，按 **F12** 開啟開發者工具，切換到 **Network（網路）** 分頁
+2. 重新整理頁面，或進入「模型檢視／管理關聯」等會載入完整結構的畫面
+3. 在 Network 清單中找到回應內容含有 `tables`、`columns`、`measures`、`relationships` 的請求，複製完整 Response 內容
+4. 貼到純文字編輯器另存為 UTF-8 編碼的 `.json` 檔（例如 `model.json`）
+5. 執行：
 
-> **注意**：金鑰為個人專屬，僅能領取一次；遺失請聯絡管理員重設。
+   ```
+   python "<SKILL_ROOT>/scripts/shared/chunk_model.py" <workspace_root> <dataset_id> model.json [description.txt]
+   ```
+
+   `dataset_id` 需與「憑證設定」步驟 3 登記的同一個 dataset_id 一致；`description.txt` 為選填的模型整體說明（純文字檔）。
+
+> 若同時需要一份給非技術讀者看的資料字典，可以另外用 [bi_model_description](https://github.com/hugo2135/bi_model_description) skill 對同一份 `model.json` 產生 `.txt` 說明文件，再把該檔案路徑當作 `chunk_model.py` 的 `description_file` 參數。
+
+完成以上兩件事後，執行 `/nl-to-dax` 即可開始查詢。
 
 ---
 
@@ -88,19 +96,19 @@ nl-to-dax/
 │   ├── SKILL.md                        # Skill 執行指令（Claude 讀取）
 │   ├── VERSION                         # 目前版號（major.build，例如 0.1）
 │   ├── config/
-│   │   └── default_credential_server_url.txt   # 本倉庫預設服務網址（settings.local.json 首次建立時帶入）
+│   │   └── azure_ad_credentials.json.example   # Azure AD 憑證與模型 dataset_name/workspace_id 範本
 │   ├── filters/                        # DAX 篩選設定檔
 │   │   ├── default_order.json          # 預設訂單篩選（常態啟用）
 │   │   ├── investigation.json          # 排查模式（覆蓋預設篩選）
 │   │   └── refund_analysis.json        # 退費分析模式（覆蓋預設篩選）
 │   └── scripts/
 │       ├── shared/                     # 跨平台共用 Python 腳本
-│       │   ├── skill_settings.py       # 共用工具：skill_root/workspace_root 判斷、設定檔讀寫
+│       │   ├── skill_settings.py       # 共用工具：skill_root/workspace_root 判斷、憑證檔讀取
 │       │   ├── check_python_env.py     # 檢查 Python 版本與標準函式庫模組是否可用
-│       │   ├── check_setup.py          # 環境檢查（回傳 JSON 狀態，含每日模型同步旗標）
+│       │   ├── check_setup.py          # 環境檢查（回傳已登記模型的憑證/結構就緒狀態）
 │       │   ├── check_update.py         # 每日版本檢查（比對遠端 git tag）
-│       │   ├── fetch_credential.py     # 向申請程式取得 Access Token
-│       │   ├── fetch_model.py          # 向申請程式同步語意模型，並清除已收回權限的舊快取
+│       │   ├── chunk_model.py          # 把 F12 擷取的語意模型 JSON 拆成 relationships/tables，以 dataset_id 命名資料夾
+│       │   ├── fetch_credential.py     # 直接向 Azure AD 換取 Access Token
 │       │   ├── model_overview.py       # 彙整單一模型的 relationships + tables，供模型概覽使用
 │       │   └── pbi_api_client.py       # Power BI REST API 客戶端
 │       ├── windows/                    # Windows PowerShell 觸發腳本
@@ -115,19 +123,16 @@ nl-to-dax/
 <你的工作區根目錄>/
 ├── .claude/
 │   └── pbi_configs.json          # Access Token 快取（敏感，需受 .gitignore 保護）
-├── pbi_config/                   # 語意模型快取（fetch_model.py 同步而來，跨查詢重複使用）
-│   ├── models_index.json         # 可用模型清單
-│   ├── last_sync.json            # 上次成功同步日期，決定是否需要每日重新同步
-│   └── <pbi_config_id>/
+├── pbi_config/                   # 語意模型快取（chunk_model.py 產生，跨查詢重複使用）
+│   └── <dataset_id>/
 │       ├── relationships.json    # 資料表關聯性
+│       ├── description.txt       # 模型整體說明（選填，chunk_model.py 的 description_file 參數提供）
 │       └── tables/
 │           └── table_<表名>.json # 各資料表結構（含量值定義）
 └── pbi_query/                    # 每次查詢的暫存產物（用完即可清除）
     ├── dax_query.txt             # 本次生成的 DAX 查詢
     └── query_result.csv          # 查詢結果
 ```
-
-> `pbi_config/` 存放的是模型結構快取，`pbi_query/` 只存放單次查詢的輸入/輸出，兩者職責分開。
 
 ---
 
@@ -139,7 +144,7 @@ nl-to-dax/
 範例：列出各縣市的本月訂單數量與總金額，依縣市排序
 ```
 
-Skill 自動完成：環境初始化（Python 檢查）→ 版本檢查 → 模型清單同步（每日至多一次）→ 模型選擇 → 模型概覽展示 → DAX 生成 → API 執行 → CSV 輸出。
+Skill 自動完成：環境初始化（Python 檢查）→ 版本檢查 → 模型選擇 → 模型概覽展示 → DAX 生成 → API 執行 → CSV 輸出。
 
 ---
 
@@ -173,10 +178,23 @@ Skill 自動完成：環境初始化（Python 檢查）→ 版本檢查 → 模�
 
 ---
 
+## 疑難排解
+
+- **Access Token 換取失敗，或執行查詢時回報權限錯誤**：請至 Power BI 管理後台（Tenant settings → Developer settings）確認已開啟「Allow service principals to use Power BI APIs」，這是 Power BI 租戶層級的設定，跟 Azure AD 的 API permissions/consent 是兩回事。
+- **服務主體有 Token 但查不到 workspace 內容**：確認該服務主體已被加入目標 workspace 的成員（Member 或以上）。
+- **查詢執行失敗，錯誤訊息不明確**：`executeQueries` 這個 REST API 只支援 Premium、Premium Per User (PPU) 或 Fabric 容量的 workspace（底層走 XMLA endpoint）；一般 Pro workspace 會查詢失敗，且錯誤訊息通常不會直接說明是容量問題。
+- **原本可用突然失敗，且時間點接近設定憑證滿兩年**：Azure AD Client Secret 最長效期為 24 個月，此 Skill 不做自動輪替，到期需自行在 Azure Portal 重新產生並更新 `azure_ad_credentials.json`。
+
+---
+
 ## 注意事項
 
-- `PBI_MASK_KEY` 為個人專屬，請勿共用或外洩
-- `config/settings.local.json`、`.claude/pbi_configs.json` 皆含敏感資訊，請勿手動納入版本控制
+- `config/azure_ad_credentials.json` 含 Azure AD 憑證（`tenant_id`/`client_id`/`client_secret`），請勿提供給 Claude 讀取或代填，也請勿手動納入版本控制
 - Access Token 有效期約 1 小時，過期後重新執行 Skill 即可自動更新
-- 語意模型由管理員集中維護；不論模型內容或使用者的已分配模型是否變動，Skill 每日至少強制重新同步一次，不會永遠沿用舊清單
 - Python 3.9+ 不足或標準函式庫模組缺失時，Skill 會在最開始就清楚告知原因並停止，不會執行到一半才失敗
+
+---
+
+## Related projects
+
+- [bi_model_description](https://github.com/hugo2135/bi_model_description) — plain-language data-dictionary generation for BI models

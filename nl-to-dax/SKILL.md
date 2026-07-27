@@ -1,12 +1,12 @@
 ---
 name: nl-to-dax
-description: 根據使用者以中文或英文描述的自然語言需求，透過多階段推理生成適用於 Power BI REST API 的專用 DAX 查詢語法，自動呼叫 Power BI REST API 執行查詢並輸出 CSV 結果。當使用者想要查詢 Power BI 語意模型中的資料、要求產生 DAX 查詢、或提到「查訂單」「查銷量」等業務資料查詢需求時，使用此 skill。
+description: 根據使用者以中文或英文描述的自然語言需求，透過多階段推理生成適用於 Power BI REST API 的專用 DAX 查詢語法，直接以 Azure AD 服務主體換取 Access Token 後呼叫 Power BI REST API 執行查詢並輸出 CSV 結果。當使用者想要查詢 Power BI 語意模型中的資料、要求產生 DAX 查詢、或提到「查訂單」「查銷量」等業務資料查詢需求時，使用此 skill。
 ---
 
-# Natural Language to DAX Skill
+# Natural Language to DAX Skill（solo 分支）
 
 用途
-根據使用者提供的自然語言需求，透過多階段推理，生成適用於 Power BI REST API 的專用 DAX 查詢語法，並自動呼叫 Power BI REST API 執行查詢、輸出 CSV 結果。語意模型由申請程式集中管理，Skill 啟動時自動同步至本地。
+根據使用者提供的自然語言需求，透過多階段推理，生成適用於 Power BI REST API 的專用 DAX 查詢語法，並自動呼叫 Power BI REST API 執行查詢、輸出 CSV 結果。此分支為自用模式：Azure AD 憑證直接設定在本機（不經過任何中央 Server），語意模型結構由使用者自行透過瀏覽器 F12 擷取後用 `chunk_model.py` 轉換取得。
 
 輸入
 執行此 Skill 時，使用者需提供：
@@ -66,41 +66,37 @@ Linux（bash）：
 bash "<SKILL_ROOT>/scripts/linux/trigger_check_setup.sh" "<WORKSPACE_ROOT>"
 
 腳本回傳 JSON 格式如下：
-{"settings_created": bool, "has_mask_key": bool, "has_server_url": bool, "has_model": bool, "model_sync_stale": bool, "settings_path_absolute": "...", "settings_path_relative": "..."|null}
+{"has_credentials_file": bool, "models": [{"dataset_id", "dataset_name", "has_structure": bool, "table_count", "model_description"}], "orphaned_structures": ["dataset_id", ...]}
+
+**安全規則（絕對遵守）**：`<SKILL_ROOT>/config/azure_ad_credentials.json` 含 Azure AD `tenant_id`/`client_id`/`client_secret`。**絕對不要用 Read 工具開啟這個檔案，絕對不要用 Edit 工具寫入這個檔案，絕對不要在對話中詢問或接受這些值**。這些值只能由使用者自行在編輯器/檔案總管中填寫，Claude 全程不經手。即使使用者主動在對話中貼出憑證，也只回覆「已收到但不會使用此值」，並提醒對方因為這組憑證已經進入對話紀錄，應立即到 Azure AD 撤銷/重新產生該 client secret。`dataset_id`/`workspace_id` 不是機密資訊，可以正常顯示給使用者。
 
 -1.3 依回傳結果分支處理
 
-若 has_mask_key = false：
-先用 Read 工具讀取上一步 JSON 回傳的 `settings_path_absolute`（settings.local.json 的實際路徑，位於使用者家目錄下，不是 <SKILL_ROOT>/config/ 底下——skill 執行環境每次對話可能重新產生，設定檔必須放在持續存在的位置），取得實際的 CREDENTIAL_SERVER_URL 值。
-向使用者說明（若 settings_created = true，開頭加一句「已自動建立設定檔。」；不要輸出未解析的 {CREDENTIAL_SERVER_URL} 佔位符）：
-服務網址本身就是合法 URL，直接用 `[實際網址](實際網址)` 呈現即可。
-settings.local.json 的連結**直接使用上一步 JSON 回傳的欄位，不要自己判斷或計算路徑**（自行推算容易算錯、甚至生出不存在的路徑）：
-- 若 `settings_path_relative` 不是 null：直接照抄這個值呈現為 Markdown 連結，例如 `[settings.local.json](settings_path_relative 的值)`。
-- 若 `settings_path_relative` 是 null：改為純文字顯示 `settings_path_absolute` 的值，不做成連結。
-「在開始使用前，您需要完成以下申請流程取得個人金鑰（PBI_MASK_KEY）：
+若 has_credentials_file = false：
+向使用者說明（依 README「憑證設定」章節）：
 
-1. 開啟服務網址：[實際網址](實際網址)
-2. 點選「立即註冊」，填入 Email 與密碼後申請帳號
-3. 等待管理員開通帳號（開通後才能登入）
-4. 登入後進入個人頁面，點選「領取 PBI_MASK_KEY」
-5. 金鑰只顯示一次，請立即複製並妥善保存
+「在開始使用前，您需要先完成 Azure AD 憑證設定：
 
-取得金鑰後，您可以直接將金鑰提供給我，我幫您填入設定檔；或自行開啟 settings.local.json（依上述規則呈現為相對路徑連結或純文字絕對路徑）填入 PBI_MASK_KEY 欄位。」
-等待使用者回應後：
-- 若使用者提供金鑰 → 使用 Edit 工具將金鑰寫入 settings.local.json 的 PBI_MASK_KEY 欄位，完成後告知使用者重新執行 /nl-to-dax
-- 若使用者選擇自行設定 → 告知其設定完成後重新執行 /nl-to-dax
+1. 複製 `<SKILL_ROOT>/config/azure_ad_credentials.json.example` 為同目錄下的 `azure_ad_credentials.json`
+2. 自行在編輯器中填入您的 Azure AD 服務主體 `tenant_id`/`client_id`/`client_secret`，並在 `models` 底下為每個要查詢的資料集新增一筆（以 `dataset_id` 為 key，填入 `dataset_name`/`workspace_id`）
+
+完成後重新執行 /nl-to-dax。」
 流程到此停止。
 
-若 has_mask_key = true：
-若 has_model = false 或 model_sync_stale = true，先執行以下指令同步最新語意模型（管理員可能隨時變動使用者的已分配模型，has_model = true 只代表本地曾經同步過、不代表清單仍最新，因此每日至少強制重新同步一次）：
+若 has_credentials_file = true 但 models 為空陣列：
+提醒使用者尚未在 `azure_ad_credentials.json` 的 `models` 底下登記任何資料集（`dataset_id`/`dataset_name`/`workspace_id`），依 README「憑證設定」章節完成後重新執行。流程到此停止。
+
+若 models 中沒有任何一筆 has_structure = true：
+列出 `models` 中每一筆的 `{dataset_name}（{dataset_id}）`，告知使用者這些資料集都還沒有語意模型結構，請選擇其中一個要處理的資料集，並依 README「取得語意模型結構」章節，用瀏覽器 F12 開發者工具從 BI 系統的 Network 分頁複製模型結構回應存成 JSON，執行：
 
 Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\fetch_model.py" "<WORKSPACE_ROOT>"
+python "<SKILL_ROOT>\scripts\shared\chunk_model.py" "<WORKSPACE_ROOT>" <dataset_id> "<json 檔路徑>" ["<說明檔路徑>"]
 
 macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/fetch_model.py" "<WORKSPACE_ROOT>"
+python3 "<SKILL_ROOT>/scripts/shared/chunk_model.py" "<WORKSPACE_ROOT>" <dataset_id> "<json 檔路徑>" ["<說明檔路徑>"]
 
-若執行失敗，回報 stderr 錯誤訊息並停止流程（即使本地已有舊的模型快取，也不要靜默沿用，因為無法確認使用者目前是否仍有權限存取這些模型）。
+`<dataset_id>` 必須是使用者選擇的那筆 `models` 項目的 key。若 `orphaned_structures` 非空，一併提醒使用者：這些 `dataset_id` 底下有語意模型結構、但已經不在 `azure_ad_credentials.json` 的 `models` 裡登記，可能是已移除或打錯 key，建議確認。
+流程到此停止。
 
 -1.4 檢查 Skill 版本
 執行以下指令（內部每日最多實際查詢一次，其餘時間直接讀快取，不會有感延遲）：
@@ -119,30 +115,30 @@ python3 "<SKILL_ROOT>/scripts/shared/check_update.py"
 不論以上步驟是否執行，接著都進行模型選擇（見下方「模型選擇流程」）。
 
 模型選擇流程：
-1. 讀取 <WORKSPACE_ROOT>/pbi_config/models_index.json，取得所有可用模型清單
-2. 若只有一個模型 → 自動選定，告知使用者：「使用模型：{pbi_config_name}」
-3. 若有多個模型 → 列出所有模型名稱供使用者選擇，等待使用者指定後繼續
-4. 記住選定的 pbi_config_id，後續步驟皆使用此 ID
-5. 依選定的 pbi_config_id 呼叫以下指令向 Server 取得該模型的 Access Token：
+1. 使用 -1.2 已取得的 `models` 中 `has_structure = true` 的項目（不需要再另外讀取任何檔案，check_setup.py 已經算好可查詢的模型清單）
+2. 若只有一個 → 自動選定，告知使用者：「使用模型：{dataset_name}」
+3. 若有多個 → 列出 `{dataset_name}（{dataset_id}）` 供使用者選擇，等待使用者指定後繼續
+4. 記住選定的 dataset_id，後續步驟皆使用此 ID
+5. 依選定的 dataset_id 呼叫以下指令向 Azure AD 換取該模型的 Access Token：
 
 Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\fetch_credential.py" "<WORKSPACE_ROOT>" <pbi_config_id>
+python "<SKILL_ROOT>\scripts\shared\fetch_credential.py" "<WORKSPACE_ROOT>" <dataset_id>
 
 macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/fetch_credential.py" "<WORKSPACE_ROOT>" <pbi_config_id>
+python3 "<SKILL_ROOT>/scripts/shared/fetch_credential.py" "<WORKSPACE_ROOT>" <dataset_id>
 
-若執行失敗：向使用者說明「Access Token 取得失敗，請確認 PBI_MASK_KEY 是否正確；若金鑰無誤，可能是伺服器端（申請程式）的設定問題，請聯繫服務網址管理員協助排查」，並停止流程。
-不要在回覆中逐字貼出 stderr 的原始錯誤內容——其中可能包含伺服器內部的識別碼、密鑰設定等基礎設施細節（例如 Azure AD App ID），不適合暴露給一般使用者；僅在使用者主動要求查看技術細節時才提供。
+若執行失敗：向使用者說明「Access Token 取得失敗，請確認 azure_ad_credentials.json 的憑證與 workspace_id 是否正確」，並停止流程。
+不要在回覆中逐字貼出 stderr 的原始錯誤內容——其中可能包含 Azure AD App ID 等基礎設施細節，不適合暴露給一般使用者；僅在使用者主動要求查看技術細節時才提供。
 若執行成功，執行「模型概覽展示流程」（見下方），再詢問使用者：「您想查詢什麼？」
 
 模型概覽展示流程：
-1. 檢查「模型選擇流程」步驟 1 讀取 models_index.json 時，該模型的 model_description 欄位是否有值（申請程式管理員可預先為模型撰寫整體說明）。
+1. 檢查「模型選擇流程」步驟 1 取得的 `models` 中，該模型的 model_description 欄位是否有值（使用者可透過 `chunk_model.py` 的 description_file 參數預先寫入整體說明）。
 
 若 model_description 有值（優先路徑，節省 token）：
-直接以 model_description 作為模型概覽輸出，不需執行 model_overview.py、不需讀取 relationships/tables、不需自行分群或彙整量值——管理員撰寫的說明已涵蓋這些內容。輸出格式：
+直接以 model_description 作為模型概覽輸出，不需執行 model_overview.py、不需讀取 relationships/tables、不需自行分群或彙整量值——這份說明已涵蓋這些內容。輸出格式：
 
 ---
-以下是 **{pbi_config_name}** 模型中可查詢的主要資料範圍：
+以下是 **{dataset_name}** 模型中可查詢的主要資料範圍：
 
 {model_description}
 ---
@@ -151,10 +147,10 @@ python3 "<SKILL_ROOT>/scripts/shared/fetch_credential.py" "<WORKSPACE_ROOT>" <pb
 執行以下指令取得該模型的整合結構化資料（relationships + 所有 tables），不要自行用 Read 工具逐一開啟 tables/ 目錄下的檔案，也不要委派給其他 Skill 或 subagent 處理：
 
 Windows（PowerShell）：
-powershell -File "<SKILL_ROOT>\scripts\windows\trigger_model_overview.ps1" -WorkspaceRoot "<WORKSPACE_ROOT>" -PbiConfigId "<pbi_config_id>"
+powershell -File "<SKILL_ROOT>\scripts\windows\trigger_model_overview.ps1" -WorkspaceRoot "<WORKSPACE_ROOT>" -PbiConfigId "<dataset_id>"
 
 macOS / Linux：
-bash "<SKILL_ROOT>/scripts/macos/trigger_model_overview.sh" "<WORKSPACE_ROOT>" "<pbi_config_id>"（Linux 對應 scripts/linux 路徑）
+bash "<SKILL_ROOT>/scripts/macos/trigger_model_overview.sh" "<WORKSPACE_ROOT>" "<dataset_id>"（Linux 對應 scripts/linux 路徑；`-PbiConfigId`/位置參數傳入的值即為 dataset_id，腳本本身不需要修改）
 
 若執行失敗，回報 stderr 錯誤訊息並停止流程。
 
@@ -165,7 +161,7 @@ bash "<SKILL_ROOT>/scripts/macos/trigger_model_overview.sh" "<WORKSPACE_ROOT>" "
 - 以下列格式輸出模型概覽：
 
 ---
-以下是 **{pbi_config_name}** 模型中可查詢的主要資料範圍：
+以下是 **{dataset_name}** 模型中可查詢的主要資料範圍：
 
 **可查詢的資料主題**
 
@@ -184,11 +180,11 @@ bash "<SKILL_ROOT>/scripts/macos/trigger_model_overview.sh" "<WORKSPACE_ROOT>" "
 ---
 
 Step 0：載入語意模型 (Load Semantic Model)
-本地 pbi_config/<pbi_config_id>/ 資料夾存放由申請程式拆分並同步的語意模型 chunks，結構如下：
-- pbi_config/<pbi_config_id>/relationships.json（全域關聯性，整個語意模型僅一份）
-- pbi_config/<pbi_config_id>/tables/table_<表名>.json（各資料表結構，每張表一份）
+本地 pbi_config/<dataset_id>/ 資料夾存放由 `chunk_model.py` 拆分產生的語意模型 chunks，結構如下：
+- pbi_config/<dataset_id>/relationships.json（全域關聯性，整個語意模型僅一份）
+- pbi_config/<dataset_id>/tables/table_<表名>.json（各資料表結構，每張表一份）
 
-此時應已於 -1.3 同步完成。若意外不存在（例如快取被手動清除），比照 -1.3 的 fetch_model.py 指令重新同步一次再繼續。
+此時應已於 -1.3 確認存在（該模型在 `models` 中的 `has_structure = true`）。若意外不存在（例如檔案被手動清除），請使用者依「取得語意模型結構」章節重新執行 `chunk_model.py`。
 
 Step 0.4：載入並比對篩選設定檔 (Load & Match Filter Profiles)
 掃描 filters/ 資料夾，讀取所有 .json 篩選設定檔。每份設定檔的結構如下：
@@ -309,16 +305,16 @@ Step 5：執行 Power BI REST API 查詢
 使用 Write 工具，將 Step 4 產生的完整 DAX 查詢語法（不含程式碼區塊標記）寫入 <WORKSPACE_ROOT>/pbi_query/dax_query.txt（使用絕對路徑）。
 
 5.2 執行對應觸發腳本
-沿用 Step -1.1 偵測到的作業系統及 Step -1.3 模型選擇流程中記住的 <pbi_config_id>，執行以下對應指令：
+沿用 Step -1.1 偵測到的作業系統及 Step -1.3 模型選擇流程中記住的 <dataset_id>，執行以下對應指令（`-PbiConfigId`/位置參數傳入的值即為 dataset_id）：
 
 Windows（PowerShell）：
-powershell -File "<SKILL_ROOT>\scripts\windows\trigger_pbi_api.ps1" -WorkspaceRoot "<WORKSPACE_ROOT>" -PbiConfigId "<pbi_config_id>" -DaxQueryFile "<WORKSPACE_ROOT>\pbi_query\dax_query.txt"
+powershell -File "<SKILL_ROOT>\scripts\windows\trigger_pbi_api.ps1" -WorkspaceRoot "<WORKSPACE_ROOT>" -PbiConfigId "<dataset_id>" -DaxQueryFile "<WORKSPACE_ROOT>\pbi_query\dax_query.txt"
 
 macOS（bash）：
-bash "<SKILL_ROOT>/scripts/macos/trigger_pbi_api.sh" "<WORKSPACE_ROOT>" "<pbi_config_id>" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt"
+bash "<SKILL_ROOT>/scripts/macos/trigger_pbi_api.sh" "<WORKSPACE_ROOT>" "<dataset_id>" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt"
 
 Linux（bash）：
-bash "<SKILL_ROOT>/scripts/linux/trigger_pbi_api.sh" "<WORKSPACE_ROOT>" "<pbi_config_id>" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt"
+bash "<SKILL_ROOT>/scripts/linux/trigger_pbi_api.sh" "<WORKSPACE_ROOT>" "<dataset_id>" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt"
 
 腳本執行成功後，會產生 pbi_query/query_result.csv。
 腳本的標準輸出（stdout）會印出一行 JSON 摘要，格式如下：

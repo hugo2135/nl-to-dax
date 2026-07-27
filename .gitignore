@@ -4,7 +4,7 @@
 pbi_credentials.jwt
 pbi_query/
 gen_test_jwt.py
-nl-to-dax/config/settings.local.json
+nl-to-dax/config/azure_ad_credentials.json
 nl-to-dax/config/update_check.json
 pbi_config/*
 !pbi_config/STRUCTURE.example.md
