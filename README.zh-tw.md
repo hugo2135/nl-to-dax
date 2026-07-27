@@ -47,7 +47,9 @@
 
 ## 初次設定
 
-在對話中輸入 `/nl-to-dax`，若尚未連接 MCP connector，Skill 會引導完成：
+在對話中輸入 `/nl-to-dax`，若尚未連接 MCP connector，Skill 會引導完成。
+
+**若您使用的 AI App 支援 OAuth 連線介面（例如 Settings → Connectors，如 Claude Code、Claude Apps）：**
 
 1. 若還沒有申請程式的帳號，前往網站完成註冊
 2. 通知並等待管理員開通帳號
@@ -56,6 +58,14 @@
    - URL：`https://{申請程式網域}/mcp`
    - 等待自動開啟的登入頁面，用申請程式帳密登入
 4. 重新執行 `/nl-to-dax`（使用 CLI 需重開對話才會生效）
+
+**若您使用的 AI App 不支援 OAuth 連線介面（沒有 Settings → Connectors 這類介面，需自行寫設定檔連接 MCP Server）：**
+
+1. 若還沒有申請程式的帳號，前往網站完成註冊
+2. 通知並等待管理員開通帳號
+3. 帳號開通後，登入 `https://{申請程式網域}/`，新增一組 MCP 用 token
+4. 依您使用的 AI App 規範，用此 token 建立 MCP Server 設定（URL：`https://{申請程式網域}/mcp`）
+5. 重新執行 `/nl-to-dax`
 
 > **注意**：帳號開通只是前置條件之一，管理員也需要完成 Azure AD 憑證設定與語意模型指派，登入畫面才會成功——這不是連線設定的問題，是後端尚未設定完成，請聯繫管理員確認。
 

@@ -47,7 +47,9 @@ The following describes **this branch (`mcp-oauth`)**'s installation and usage. 
 
 ## First-time setup
 
-Type `/nl-to-dax` in a conversation — if the MCP connector isn't connected yet, the skill walks you through it:
+Type `/nl-to-dax` in a conversation — if the MCP connector isn't connected yet, the skill walks you through it.
+
+**If your AI app supports an OAuth connector UI (e.g., a Settings → Connectors screen, such as Claude Code or Claude Apps):**
 
 1. If you don't have an account on the credential application server yet, register on the site
 2. Notify and wait for admin approval
@@ -56,6 +58,14 @@ Type `/nl-to-dax` in a conversation — if the MCP connector isn't connected yet
    - URL: `https://{credential-server-domain}/mcp`
    - Wait for the login page that opens automatically, and log in with your credential-server account
 4. Re-run `/nl-to-dax` (CLI users: start a new conversation for it to take effect)
+
+**If your AI app doesn't support an OAuth connector UI (no Settings → Connectors screen — you configure MCP servers via a config file instead):**
+
+1. If you don't have an account on the credential application server yet, register on the site
+2. Notify and wait for admin approval
+3. Once approved, log in at `https://{credential-server-domain}/` and issue an MCP-use token
+4. Using that token, build an MCP server config per your AI app's own spec (URL: `https://{credential-server-domain}/mcp`)
+5. Re-run `/nl-to-dax`
 
 > **Note**: account approval is only one prerequisite — the admin must also complete Azure AD credential setup and semantic model assignment before login succeeds. If login fails after approval, it isn't a connection-setup issue, it's a backend-configuration matter — please check with the admin.
 

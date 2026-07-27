@@ -20,7 +20,7 @@ Step -1：認證檢查 (Auth Check)
 
 若呼叫失敗（尚未連接 MCP connector 或授權已過期），向使用者說明（MCP 的 OAuth 登入畫面不會繞過帳號審核，未完成申請流程登入畫面會直接失敗，需完整說明）：
 
-「這個 Skill 需要先連接 nl-to-dax 的 MCP connector。若尚未申請帳號：
+「這個 Skill 需要先連接 nl-to-dax 的 MCP connector。若您使用的 AI App 支援 Settings → Connectors 這類 OAuth 連線介面（例如 Claude Code、Claude Apps）：
 1. 若還沒有帳號則前往 [{SITE_DOMAIN}](https://{SITE_DOMAIN}/register) 註冊
 2. 通知並等待管理員開通帳號
 3. 帳號開通後，請新增MCP Server
@@ -28,6 +28,13 @@ Step -1：認證檢查 (Auth Check)
   - URL：https://{SITE_DOMAIN}/mcp
   等待自動開啟頁面後申請好的帳密登入
 4. 重新執行 /nl-to-dax。(如果使用CLI則需要重開對話)
+
+若您使用的 AI App 不支援 OAuth 連線畫面（沒有 Settings → Connectors 這類介面，需自行寫 MCP Server 設定檔）：
+1. 若還沒有帳號則前往 [{SITE_DOMAIN}](https://{SITE_DOMAIN}/register) 註冊
+2. 通知並等待管理員開通帳號
+3. 帳號開通後，登入 [{SITE_DOMAIN}](https://{SITE_DOMAIN}/)，新增一組 MCP 用 token
+4. 依您使用的 AI App 規範，用此 token 建立 MCP Server 設定（URL：https://{SITE_DOMAIN}/mcp）
+5. 重新執行 /nl-to-dax
 」
 
 流程到此停止。
