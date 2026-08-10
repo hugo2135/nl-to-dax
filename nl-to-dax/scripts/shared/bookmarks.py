@@ -76,28 +76,35 @@ def _save(data: dict) -> None:
     os.replace(tmp_path, BOOKMARKS_PATH)
 
 
+def _listing(entries: dict) -> list:
+    listing = [
+        {
+            "name":       name,
+            "request":    entry.get('request'),
+            "created_at": entry.get('created_at'),
+            "updated_at": entry.get('updated_at'),
+        }
+        for name, entry in entries.items()
+    ]
+    listing.sort(key=lambda item: item.get('updated_at') or '', reverse=True)
+    return listing
+
+
 def cmd_list(model_key: str = None) -> dict:
-    """只回傳名稱與需求摘要，不含 DAX 內容——每次對話開頭都會呼叫，不應灌爆上下文。"""
+    """只回傳名稱與需求摘要，不含 DAX 內容——每次對話開頭都會呼叫，不應灌爆上下文。
+
+    不指定 model_key 時回傳所有模型的分組清單，供 preflight 一次帶回，
+    這樣選定模型後就不需要再呼叫一次。
+    """
     data = _load()
     env = detect_persistence()
 
     if model_key is not None:
-        entries = data.get(model_key, {})
-        listing = [
-            {
-                "name":       name,
-                "request":    entry.get('request'),
-                "created_at": entry.get('created_at'),
-                "updated_at": entry.get('updated_at'),
-            }
-            for name, entry in entries.items()
-        ]
-        listing.sort(key=lambda item: item.get('updated_at') or '', reverse=True)
-        return {"success": True, "model_key": model_key, "bookmarks": listing, **env}
+        return {"success": True, "model_key": model_key, "bookmarks": _listing(data.get(model_key, {})), **env}
 
     return {
         "success": True,
-        "model_counts": {key: len(entries) for key, entries in data.items()},
+        "models": {key: _listing(entries) for key, entries in data.items()},
         **env,
     }
 

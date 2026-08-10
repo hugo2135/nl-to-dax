@@ -85,8 +85,8 @@ nl-to-dax/
 │   │   └── site_domain.json.example  # 申請程式網域範本，安裝時複製為 site_domain.json 並填入實際網域
 │   └── scripts/
 │       └── shared/
+│           ├── preflight.py            # 啟動前置檢查：一次回傳 Python 環境／版本更新／查詢書籤
 │           ├── bookmarks.py            # 查詢書籤的存取（list/show/save/delete）與環境持久性偵測
-│           ├── check_python_env.py     # 執行前先確認 Python 版本與所需標準函式庫模組皆可用
 │           ├── check_update.py         # 選用：每日版本檢查（比對遠端 git tag），與認證機制無關
 │           └── execute_dax_query.py    # 用 MCP 取得的 Access Token，直接對 Power BI executeQueries API 送查詢
 └── README.md

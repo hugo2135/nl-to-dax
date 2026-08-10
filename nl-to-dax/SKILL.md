@@ -14,23 +14,33 @@ Step -1：環境與認證檢查 (Pre-check & Auth Check)
 
 此 SKILL.md 所在的目錄即為 Skill 根目錄，以下稱 <SKILL_ROOT>。
 
--1.1 檢查 Python 環境
+**執行腳本的方式**：一律直接呼叫 Python，不要透過任何 shell wrapper——Windows 用 `python`，
+macOS / Linux 用 `python3`，除了這個指令名稱之外其餘參數完全相同，因此以下各步驟只寫一種形式。
+路徑分隔符號用 `/` 即可，Windows 的 Python 同樣接受。
+
+-1.1 執行前置檢查（單一指令取得所有狀態）
 此分支的前半段（`list_models`、模型選擇、DAX 生成）全部走 MCP，不需要 Python；但 Step 5 執行查詢的 `execute_dax_query.py`、以及書籤功能的 `bookmarks.py` 都需要。**必須在最開始就檢查**，否則使用者會一路跑到最後一步、推理成本都花掉了才發現環境不行。
 
-依當前作業系統執行對應指令：
+Python 環境、版本更新、查詢書籤三項檢查已整併為一支腳本，只需執行一次：
 
-macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/check_python_env.py"
-
-Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\check_python_env.py"
+python "<SKILL_ROOT>/scripts/shared/preflight.py"
 
 若指令本身找不到（例如「'python' 不是內部或外部命令」／「command not found」，代表連 Python 都沒裝）：告知使用者「找不到 Python，請先安裝 Python 3.9 以上版本」，流程到此停止。
 
-若指令有執行，回傳 JSON：{"python_version": "3.x.x", "version_ok": bool, "missing_modules": [...], "ok": bool}
-- `ok = true`：繼續下一步。
-- `version_ok = false`：告知使用者目前偵測到的版本（`python_version`），請其升級至 3.9 以上，流程到此停止。
-- `missing_modules` 非空（極少見，通常代表 Python 安裝不完整或為精簡版）：告知使用者缺少哪些標準函式庫模組，建議重新安裝完整版 Python，流程到此停止。
+回傳單一 JSON：
+{
+  "python":    {"python_version": "3.x.x", "version_ok": bool, "missing_modules": [...], "ok": bool},
+  "gated":     bool,
+  "update":    {"current_version": "...", "latest_version": "..."|null, "update_available": bool, "checked": bool},
+  "bookmarks": {"models": {"<pbi_config_id>": [{"name", "request", "created_at", "updated_at"}]}, "persistent": bool, "proven": bool}
+}
+
+- `gated = true` 代表 Python 版本或標準函式庫不符，此時只有 `python` 欄位有值：
+  - `version_ok = false`：告知使用者目前偵測到的版本（`python_version`），請其升級至 3.9 以上，流程到此停止。
+  - `missing_modules` 非空（極少見，通常代表 Python 安裝不完整或為精簡版）：告知使用者缺少哪些標準函式庫模組，建議重新安裝完整版 Python，流程到此停止。
+- `gated = false` → 繼續下一步。
+
+`update` 純粹是提醒性質：`checked = false` 或該區段回傳 `{"ok": false, ...}` 時靜默略過；`update_available = true` 時在稍後的回覆中簡短提醒一次即可，不中斷流程。（是否保留這個版本檢查機制，或改用未來 plugin marketplace 自帶的機制，屬於獨立的開放問題，見 CLAUDE.md 開發計畫。）
 
 -1.2 讀取申請程式網域
 用 Read 工具讀取 <SKILL_ROOT>/config/site_domain.json 的 `site_domain` 欄位，取得申請程式網域，以下稱 <SITE_DOMAIN>。檔案不存在代表部署未完成，這不是使用者能自行處理的事：僅告知使用者「請聯繫管理員協助」，流程到此停止。
@@ -61,18 +71,6 @@ python "<SKILL_ROOT>\scripts\shared\check_python_env.py"
 流程到此停止。
 
 若呼叫成功：回傳內容為 `list[dict]`，每筆至少包含 `pbi_config_id`、`pbi_config_name`、`model_version`、`model_description`（可能為 null）、`table_count`，可能包含 `query_modes`（陣列，管理員設定的「資料曝光範圍模式」，沒設定時是空陣列或缺席）。直接進入「模型選擇流程」。
-
-（可選）Skill 版本檢查：
-與認證機制無關，是否保留現有 `check_update.py`、或改用未來 plugin marketplace 自帶的版本機制，屬於獨立的開放問題（見 CLAUDE.md 開發計畫），不影響本節主流程。若保留，執行方式：
-
-macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/check_update.py"
-
-Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\check_update.py"
-
-回傳 JSON：{"current_version": "...", "latest_version": "..."|null, "update_available": bool, "checked": bool}
-此步驟純粹是提醒性質：執行失敗或 checked = false 時靜默略過，不告知使用者；`update_available = true` 時在稍後的回覆中簡短提醒一次即可，不中斷流程。
 
 模型選擇流程：
 1. 從 `list_models` 回傳的清單中選擇模型
@@ -127,18 +125,12 @@ python "<SKILL_ROOT>\scripts\shared\check_update.py"
 ---
 
 書籤展示流程：
-模型概覽輸出完之後、詢問「您想查詢什麼？」之前，執行以下指令列出該模型已存的查詢書籤：
+模型概覽輸出完之後、詢問「您想查詢什麼？」之前，取出該模型的查詢書籤。
 
-macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/bookmarks.py" list <pbi_config_id>
+**不需要再執行任何指令**——-1.1 的 preflight 已經帶回 `bookmarks.models`（依 pbi_config_id 分組），直接取 `bookmarks.models[<選定的 pbi_config_id>]` 即可（該 key 不存在代表這個模型還沒有書籤）。每筆為 `{"name", "request", "created_at", "updated_at"}`，已依 `updated_at` 由新到舊排序。
 
-Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\bookmarks.py" list <pbi_config_id>
-
-回傳 JSON：{"success": true, "model_key": "...", "bookmarks": [{"name", "request", "created_at", "updated_at"}], "persistent": bool, "proven": bool}
-
-- `bookmarks` 為空陣列 → 不輸出任何書籤相關文字，直接進入提問。
-- `bookmarks` 非空 → 在模型概覽的**最下方**附上一段簡短清單（依 `updated_at` 由新到舊，最多列 10 筆，超過時於結尾註明「（另有 N 筆，可請我列出全部）」）：
+- 清單為空 → 不輸出任何書籤相關文字，直接進入提問。
+- 清單非空 → 在模型概覽的**最下方**附上一段簡短清單（最多列 10 筆，超過時於結尾註明「（另有 N 筆，可請我列出全部）」）：
 
 ---
 **已儲存的查詢書籤**
@@ -149,9 +141,13 @@ python "<SKILL_ROOT>\scripts\shared\bookmarks.py" list <pbi_config_id>
 ---
 
 只列名稱與需求描述，**不要列出 DAX 內容**（那會佔掉大量上下文）。
-若 `persistent` 為 false，在清單後補一句：「（目前環境的檔案在對話結束後會清除，書籤僅在本次對話有效）」。
+若 `bookmarks.persistent` 為 false，在清單後補一句：「（目前環境的檔案在對話結束後會清除，書籤僅在本次對話有效）」。
 
-使用者指定要用某個書籤時，執行 `bookmarks.py show <pbi_config_id> "<name>"` 取得該書籤的 `dax` 與 `request`，並詢問使用者要用哪一種方式：
+使用者指定要用某個書籤時，執行以下指令取得該書籤的 `dax` 與 `request`（清單本身不含 DAX，需要時才取）：
+
+python "<SKILL_ROOT>/scripts/shared/bookmarks.py" show <pbi_config_id> "<name>"
+
+並詢問使用者要用哪一種方式：
 1. **直接執行存下的 DAX**——快，跳過 Step 0-4 的推理，直接進 Step 5。
 2. **用原需求重新生成**——以書籤的 `request` 作為本次需求，正常走 Step 0.4-4 再進 Step 5；管理員調整過篩選規則、查詢模式、欄位別名或語意模型時會反映最新狀態。
 
@@ -306,11 +302,7 @@ Server 只提供 `get_powerbi_token` 換發 token，DAX 查詢由 Skill 自己�
 
 執行以下指令（`<SKILL_ROOT>` 替換為實際路徑，`workspace_id`/`dataset_id` 來自「模型選擇流程」步驟 6 呼叫 `get_model_detail` 的回傳）：
 
-macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/execute_dax_query.py" "<access_token>" "<workspace_id>" "<dataset_id>" "<dax_query.txt 的絕對路徑>" "<pbi_query/query_result.csv 的絕對路徑>"
-
-Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\execute_dax_query.py" "<access_token>" "<workspace_id>" "<dataset_id>" "<dax_query.txt 的絕對路徑>" "<pbi_query\query_result.csv 的絕對路徑>"
+python "<SKILL_ROOT>/scripts/shared/execute_dax_query.py" "<access_token>" "<workspace_id>" "<dataset_id>" "<dax_query.txt 的絕對路徑>" "<pbi_query/query_result.csv 的絕對路徑>"
 
 回傳 JSON 格式：{"success": true, "row_count": N, "csv_path": "..."}
 
@@ -329,11 +321,7 @@ python "<SKILL_ROOT>\scripts\shared\execute_dax_query.py" "<access_token>" "<wor
 - 使用者不要 → 不做任何事，流程結束。
 - 使用者要 → 詢問「這個查詢要叫什麼名稱？」，取得名稱後執行：
 
-macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/bookmarks.py" save <pbi_config_id> "<名稱>" "<dax_query.txt 的絕對路徑>" "<使用者本次的原始需求文字>"
-
-Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\bookmarks.py" save <pbi_config_id> "<名稱>" "<dax_query.txt 的絕對路徑>" "<使用者本次的原始需求文字>"
+python "<SKILL_ROOT>/scripts/shared/bookmarks.py" save <pbi_config_id> "<名稱>" "<dax_query.txt 的絕對路徑>" "<使用者本次的原始需求文字>"
 
 DAX 一律由腳本從 `dax_query.txt` 讀取，**不要自己把 DAX 字串當作參數傳入、也不要用 Edit 工具手動改 bookmarks.json**——DAX 內含大量雙引號，手動轉義極易出錯。
 

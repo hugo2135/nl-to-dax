@@ -85,8 +85,8 @@ nl-to-dax/
 │   │   └── site_domain.json.example  # Credential-server domain template; copy to site_domain.json on install and fill in the actual domain
 │   └── scripts/
 │       └── shared/
+│           ├── preflight.py            # Startup pre-check: returns Python env, update status, and bookmarks in one call
 │           ├── bookmarks.py            # Query-bookmark storage (list/show/save/delete) and storage-persistence detection
-│           ├── check_python_env.py     # Verifies Python version and required standard-library modules before anything else
 │           ├── check_update.py         # Optional: daily version check (compares remote git tags), unrelated to authentication
 │           └── execute_dax_query.py    # Sends the query directly to the Power BI executeQueries API using the MCP-issued access token
 └── README.md
