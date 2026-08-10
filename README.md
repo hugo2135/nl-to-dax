@@ -27,6 +27,7 @@ The following describes **this branch (`mcp-oauth`)**'s installation and usage. 
 | Relationship validation | Automatically validates table relationships; asks the user when there's a gap |
 | DAX generation | Emits complete, REST-API-compliant queries (including `EVALUATE`) |
 | API execution | Sends queries directly to the Power BI REST API using the MCP-issued access token; the token exists only within a single conversation — never persisted, never carried across conversations |
+| Query bookmarks | Save a successful query under a name; it's listed at the bottom of the model overview next time, ready to re-run directly or regenerate from the original request |
 
 ---
 
@@ -83,6 +84,7 @@ nl-to-dax/
 │   │   └── site_domain.json.example  # Credential-server domain template; copy to site_domain.json on install and fill in the actual domain
 │   └── scripts/
 │       └── shared/
+│           ├── bookmarks.py            # Query-bookmark storage (list/show/save/delete) and storage-persistence detection
 │           ├── check_update.py         # Optional: daily version check (compares remote git tags), unrelated to authentication
 │           └── execute_dax_query.py    # Sends the query directly to the Power BI executeQueries API using the MCP-issued access token
 └── README.md
@@ -91,12 +93,16 @@ nl-to-dax/
 Generated at runtime (not version controlled):
 
 ```
+<SKILL_ROOT>/config/
+├── bookmarks.json                # Saved query bookmarks, grouped by model
+└── env_probe.json                # Probe used to tell whether local files survive across conversations
+
 <your current working directory>/
 └── pbi_query/
     └── query_result.csv          # Query result
 ```
 
-> Semantic model structure (`relationships`/`tables`) and query results are both fetched in real time through the MCP connector — nothing is persisted to a local cache file.
+> Semantic model structure (`relationships`/`tables`) and query results are both fetched in real time through the MCP connector — nothing is cached locally. Bookmarks are the sole exception (see below); they contain only DAX and your original request, never credentials.
 
 ---
 
@@ -117,6 +123,21 @@ The skill automatically runs: MCP auth check (`list_models`) → model selection
 Filter rules automatically apply business-rule filters when generating DAX. They're centrally maintained by admins at `/admin/pbi-configs` on the credential application server, and retrieved through the `filters` field of the `get_model_detail` MCP tool. To add or adjust filter rules, contact an admin — no modification to the skill itself is needed.
 
 If an admin has configured multiple **query modes** for a model, the skill asks which one to use before fetching its structure (via `list_models`' `query_modes` field, passed as `mode_id` to `get_model_detail`). If an admin has configured **column aliases**, the skill translates colloquial terms in your request (e.g. "the north region") into the actual underlying column value before generating DAX.
+
+---
+
+## Query bookmarks
+
+After a query succeeds, the skill offers to save its DAX under a name you choose. On subsequent runs, bookmarks for the selected model are listed at the bottom of the model overview — just name one to re-run it.
+
+Each bookmark stores both the **DAX** and the **original natural-language request**, so reusing it gives you two options:
+
+- **Run the saved DAX** — skips the reasoning steps; fastest and most token-efficient
+- **Regenerate from the original request** — re-runs DAX generation, picking up the latest filter rules, query modes, column aliases, and model structure
+
+The second option exists because saved DAX is frozen: if it was generated with a literal date range (rather than a relative function like `TODAY()`), or an admin has since changed the filter rules, re-running it verbatim returns stale results. The skill flags bookmarks containing literal dates when you reuse them.
+
+> **Claude Apps caveat**: bookmarks are stored in `<SKILL_ROOT>/config/bookmarks.json`. In Claude Apps, skills run in a per-conversation sandbox whose files are discarded when the conversation ends, so bookmarks saved there only last for that conversation — the skill detects this and says so when saving. For bookmarks that persist, use Claude Code CLI or the VS Code extension. (Server-side bookmark storage would fix this, but the credential server currently exposes no MCP tool for it.)
 
 ---
 

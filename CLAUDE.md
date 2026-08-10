@@ -113,7 +113,9 @@ git push origin v0.2
 仍待確認：
 - **查詢結果是否落地成本機 CSV 檔**：SKILL.md 目前預設維持落地（`pbi_query/query_result.csv`，由 Claude 用 Write 工具寫入），因為在 Claude Code 下寫檔案對使用者有意義；若之後主要在 Claude Apps sandbox 環境使用，寫了也是對話結束就消失，落不落地差異不大，需要重新評估。
 - **`check_update.py`（Skill 版本檢查）去留**：維持現有比對 git tag 的機制，還是之後打包成 plugin 後改用 marketplace 自帶的版本機制？跟認證機制無關。
-- **實際串接測試**：`list_models`/`get_model_detail`/`get_powerbi_token` 的 schema 已定案，但尚未對照真實部署的 MCP server 實際跑過，需要串接測試驗證 SKILL.md 的呼叫方式與 `execute_dax_query.py` 的資料轉換邏輯是否正確。
+- **Server 端書籤儲存 API**：查詢書籤（`bookmarks.py`）目前一律存本機 `<SKILL_ROOT>/config/bookmarks.json`，在 Claude Code 下可跨對話保存，但 Claude Apps 的沙盒每次對話清空，書籤只在當次對話有效（Skill 會偵測環境並告知使用者）。要在 Claude Apps 上真正可用，需要 Server 端提供書籤儲存的 MCP 工具（例如 `list_bookmarks`/`save_bookmark`/`delete_bookmark`），已向後端提出前先維持本機版本。書籤內容只有 DAX 與需求文字、不含憑證，落地不違反本分支的安全設計。
+- **`query_modes`/`column_aliases` 實際驗證**：SKILL.md 已依整合指南寫入這兩個欄位的處理邏輯（純增量，欄位缺席時自動略過），但 2026-08-10 實測目前部署的 MCP server 尚未回傳這兩個欄位，待 Server 部署後需實際驗證一次。
+- ~~實際串接測試~~：已於 2026-08-10 用真實 MCP connector 實測 `list_models`/`get_model_detail`/`get_powerbi_token`，回傳格式與 SKILL.md 描述一致。
 
 ### 與申請程式的 API 合約
 

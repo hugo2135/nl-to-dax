@@ -27,6 +27,7 @@
 | 關聯驗證 | 自動驗證資料表間的關聯有效性，缺口時主動發問 |
 | DAX 生成 | 輸出符合 Power BI REST API 規格的完整查詢語法（含 `EVALUATE`） |
 | API 執行 | 用 MCP 取得的 Access Token，直接對 Power BI REST API 發送查詢；Token 僅存在單次對話中，不落地、不跨對話持久化 |
+| 查詢書籤 | 查詢成功後可命名存檔，下次執行時列在模型概覽最下方，可直接重跑或用原需求重新生成 |
 
 ---
 
@@ -83,6 +84,7 @@ nl-to-dax/
 │   │   └── site_domain.json.example  # 申請程式網域範本，安裝時複製為 site_domain.json 並填入實際網域
 │   └── scripts/
 │       └── shared/
+│           ├── bookmarks.py            # 查詢書籤的存取（list/show/save/delete）與環境持久性偵測
 │           ├── check_update.py         # 選用：每日版本檢查（比對遠端 git tag），與認證機制無關
 │           └── execute_dax_query.py    # 用 MCP 取得的 Access Token，直接對 Power BI executeQueries API 送查詢
 └── README.md
@@ -91,12 +93,16 @@ nl-to-dax/
 執行期間可能自動產生（不納入版本控制）：
 
 ```
+<SKILL_ROOT>/config/
+├── bookmarks.json                # 查詢書籤（依模型分組）
+└── env_probe.json                # 判斷本機檔案能否跨對話存活的探針
+
 <使用者目前工作目錄>/
 └── pbi_query/
     └── query_result.csv          # 查詢結果
 ```
 
-> 語意模型結構（`relationships`/`tables`）與查詢結果皆透過 MCP connector 即時取得，不落地為本機快取檔案。
+> 語意模型結構（`relationships`/`tables`）與查詢結果皆透過 MCP connector 即時取得，不落地為本機快取檔案。書籤是唯一的例外（見下方章節），內容只有 DAX 與需求文字，不含任何憑證。
 
 ---
 
@@ -117,6 +123,21 @@ Skill 自動完成：MCP 認證檢查（`list_models`）→ 模型選擇與取�
 篩選規則用於在生成 DAX 時自動套用業務規則篩選條件，由管理員於申請程式的 `/admin/pbi-configs` 集中維護，透過 `get_model_detail` 這支 MCP 工具的 `filters` 欄位取得。新增或調整篩選規則請洽管理員，不需要修改 Skill 本身。
 
 若管理員為某個模型設定了多個**查詢模式**，Skill 會在取得完整結構前先詢問要用哪一個（`list_models` 回傳的 `query_modes` 欄位，選定後以 `mode_id` 帶入 `get_model_detail`）。若管理員設定了**欄位別名**，Skill 會在生成 DAX 前，把需求中的口語用詞（例如「北部」）轉換成實際的欄位值。
+
+---
+
+## 查詢書籤
+
+查詢成功後，Skill 會問您要不要把這次的 DAX 存成書籤並命名。之後每次執行 `/nl-to-dax`，選定模型後的模型概覽最下方就會列出該模型已存的書籤，可以直接說名稱重跑。
+
+書籤會同時存下 **DAX** 與**當初的自然語言需求**，重用時提供兩個選項：
+
+- **直接執行**：跳過推理步驟，最快、最省 token
+- **用原需求重新生成**：重新走一次 DAX 生成流程，會套用管理員最新的篩選規則、查詢模式、欄位別名與語意模型
+
+之所以保留第二個選項，是因為存下的 DAX 是「凍結」的——如果當初生成的是寫死的日期區間（而非 `TODAY()` 這類相對日期函數），或管理員之後調整過篩選規則，直接重跑會得到過時的結果。Skill 偵測到書籤含字面日期時會主動提醒。
+
+> **Claude Apps 注意事項**：書籤存在 `<SKILL_ROOT>/config/bookmarks.json`。Claude Apps 的 skill 執行環境是每個對話一個沙盒，對話結束後檔案會被清除，因此在該環境存下的書籤只在當次對話有效——Skill 會偵測環境並在儲存時明確告知。若需要長期保存書籤，請改用 Claude Code CLI 或 VS Code 擴充功能。（Server 端書籤儲存才是根本解法，但申請程式目前尚未提供對應的 MCP 工具。）
 
 ---
 
