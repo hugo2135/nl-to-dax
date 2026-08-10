@@ -45,7 +45,7 @@ def _get_access_token(tenant_id: str, client_id: str, client_secret: str) -> dic
             raise RuntimeError(f"Azure AD 換取 token 失敗 (HTTP {e.code})")
 
 
-def fetch_credential(workspace_root: str, dataset_id: str) -> None:
+def fetch_credential(dataset_id: str) -> None:
     script_dir = os.path.dirname(os.path.abspath(__file__))
     skill_root = skill_settings.get_skill_root(script_dir)
     credentials = skill_settings.load_azure_credentials(skill_root)
@@ -70,8 +70,7 @@ def fetch_credential(workspace_root: str, dataset_id: str) -> None:
     if not workspace_id:
         raise RuntimeError(f"azure_ad_credentials.json 的 models.{dataset_id} 缺少 workspace_id")
 
-    workspace_root = skill_settings.validate_workspace_root(workspace_root, skill_root)
-    configs_path = os.path.join(workspace_root, ".claude", "pbi_configs.json")
+    configs_path = skill_settings.get_token_cache_path(skill_root)
 
     print(f"[1/2] 向 Azure AD 換取 Access Token（dataset_id={dataset_id}）...", file=sys.stderr)
     token_data = _get_access_token(credential['tenant_id'], credential['client_id'], credential['client_secret'])
@@ -81,7 +80,7 @@ def fetch_credential(workspace_root: str, dataset_id: str) -> None:
     if not access_token:
         raise RuntimeError("Azure AD 回應格式異常，缺少 access_token")
 
-    print("[2/2] 寫入 .claude/pbi_configs.json...", file=sys.stderr)
+    print("[2/2] 寫入 config/pbi_configs.json...", file=sys.stderr)
 
     if os.path.isfile(configs_path):
         with open(configs_path, 'r', encoding='utf-8') as f:
@@ -105,11 +104,11 @@ def fetch_credential(workspace_root: str, dataset_id: str) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("用法: python fetch_credential.py <workspace_root> <dataset_id>", file=sys.stderr)
+    if len(sys.argv) < 2:
+        print("用法: python fetch_credential.py <dataset_id>", file=sys.stderr)
         sys.exit(1)
     try:
-        fetch_credential(sys.argv[1], sys.argv[2])
+        fetch_credential(sys.argv[1])
     except Exception as e:
         print(f"錯誤：{e}", file=sys.stderr)
         print(json.dumps({"success": False, "error": str(e)}))

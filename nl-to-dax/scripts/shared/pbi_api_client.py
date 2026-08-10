@@ -25,15 +25,14 @@ import skill_settings
 
 # ── Token ─────────────────────────────────────────────────────────────────────
 
-def load_token(workspace_root: str, pbi_config_id: str) -> dict:
+def load_token(pbi_config_id: str) -> dict:
     script_dir = os.path.dirname(os.path.abspath(__file__))
     skill_root = skill_settings.get_skill_root(script_dir)
-    workspace_root = skill_settings.validate_workspace_root(workspace_root, skill_root)
-    configs_path = os.path.join(workspace_root, ".claude", "pbi_configs.json")
+    configs_path = skill_settings.get_token_cache_path(skill_root)
 
     if not os.path.isfile(configs_path):
         raise RuntimeError(
-            f"找不到 .claude/pbi_configs.json\n"
+            f"找不到 {configs_path}\n"
             "請先執行 fetch_credential.py 取得 Access Token。"
         )
 
@@ -140,7 +139,7 @@ def main():
             raise RuntimeError(f"DAX 查詢檔案為空：{dax_file}")
 
         print("[1/2] 載入 Access Token...", file=sys.stderr)
-        token_data = load_token(workspace_root, pbi_config_id)
+        token_data = load_token(pbi_config_id)
 
         print("[2/2] 執行 DAX 查詢...", file=sys.stderr)
         result = execute_dax(

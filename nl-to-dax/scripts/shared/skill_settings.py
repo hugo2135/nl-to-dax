@@ -32,6 +32,17 @@ def get_credentials_path(skill_root: str) -> str:
     return os.path.join(skill_root, "config", "azure_ad_credentials.json")
 
 
+def get_token_cache_path(skill_root: str) -> str:
+    """Access Token 快取（pbi_configs.json）放在 skill_root/config/ 底下。
+
+    刻意不放在使用者的工作區（<WORKSPACE_ROOT>/.claude/）：那是使用者當下開啟的任意
+    程式碼專案，該專案的 .gitignore 是否排除 .claude/ 不在本 skill 掌控範圍內，
+    含 access token 的檔案有被誤 commit 的風險。放在 skill 自己的 config/ 底下，
+    使用者層級安裝時完全不在任何專案 repo 內，專案內安裝時也受本 repo 的 .gitignore 保護。
+    """
+    return os.path.join(skill_root, "config", "pbi_configs.json")
+
+
 def load_azure_credentials(skill_root: str) -> dict:
     """讀取 azure_ad_credentials.json。僅供 fetch_credential.py/check_setup.py 內部使用，
     回傳值不可被印到 stdout/stderr 或以任何形式交給 Claude。"""
