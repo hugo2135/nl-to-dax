@@ -10,11 +10,32 @@ description: 根據使用者以中文或英文描述的自然語言需求，透�
 
 執行步驟
 
-Step -1：認證檢查 (Auth Check)
+Step -1：環境與認證檢查 (Pre-check & Auth Check)
 
 此 SKILL.md 所在的目錄即為 Skill 根目錄，以下稱 <SKILL_ROOT>。
 
+-1.1 檢查 Python 環境
+此分支的前半段（`list_models`、模型選擇、DAX 生成）全部走 MCP，不需要 Python；但 Step 5 執行查詢的 `execute_dax_query.py`、以及書籤功能的 `bookmarks.py` 都需要。**必須在最開始就檢查**，否則使用者會一路跑到最後一步、推理成本都花掉了才發現環境不行。
+
+依當前作業系統執行對應指令：
+
+macOS / Linux：
+python3 "<SKILL_ROOT>/scripts/shared/check_python_env.py"
+
+Windows（PowerShell）：
+python "<SKILL_ROOT>\scripts\shared\check_python_env.py"
+
+若指令本身找不到（例如「'python' 不是內部或外部命令」／「command not found」，代表連 Python 都沒裝）：告知使用者「找不到 Python，請先安裝 Python 3.9 以上版本」，流程到此停止。
+
+若指令有執行，回傳 JSON：{"python_version": "3.x.x", "version_ok": bool, "missing_modules": [...], "ok": bool}
+- `ok = true`：繼續下一步。
+- `version_ok = false`：告知使用者目前偵測到的版本（`python_version`），請其升級至 3.9 以上，流程到此停止。
+- `missing_modules` 非空（極少見，通常代表 Python 安裝不完整或為精簡版）：告知使用者缺少哪些標準函式庫模組，建議重新安裝完整版 Python，流程到此停止。
+
+-1.2 讀取申請程式網域
 用 Read 工具讀取 <SKILL_ROOT>/config/site_domain.json 的 `site_domain` 欄位，取得申請程式網域，以下稱 <SITE_DOMAIN>。檔案不存在代表部署未完成，這不是使用者能自行處理的事：僅告知使用者「請聯繫管理員協助」，流程到此停止。
+
+-1.3 認證檢查
 
 嘗試呼叫 MCP 工具 `list_models`（無參數），取得使用者目前有權限存取的語意模型清單（輕量版，不含完整 relationships/tables）。
 

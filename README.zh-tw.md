@@ -35,6 +35,7 @@
 
 - Claude（支援 MCP connector 的介面，例如 Claude Code、Claude Apps）
 - 已連接 nl-to-dax 的 MCP connector（Settings → Connectors）
+- Python 3.9+（僅使用標準函式庫，無需安裝第三方套件）。流程中走 MCP 的部分不需要 Python，但執行查詢與書籤功能需要——Skill 會在最開始就檢查，而不是等到最後一步才失敗
 - Git（僅供選用的 Skill 版本檢查功能使用；未安裝或無法連線時會靜默略過，不影響主要功能）
 - **若在 Claude Apps 中執行**：其 code execution 沙盒預設會擋未知網域的對外連線，需自行到 Settings → Capabilities → Network egress 把 `api.powerbi.com` 加入白名單，否則 Step 5 執行查詢時會收到類似 `Tunnel connection failed: 403 Forbidden` 的錯誤（這不影響 MCP connector 本身，只影響直接呼叫 Power BI REST API 的部分）
 
@@ -85,6 +86,7 @@ nl-to-dax/
 │   └── scripts/
 │       └── shared/
 │           ├── bookmarks.py            # 查詢書籤的存取（list/show/save/delete）與環境持久性偵測
+│           ├── check_python_env.py     # 執行前先確認 Python 版本與所需標準函式庫模組皆可用
 │           ├── check_update.py         # 選用：每日版本檢查（比對遠端 git tag），與認證機制無關
 │           └── execute_dax_query.py    # 用 MCP 取得的 Access Token，直接對 Power BI executeQueries API 送查詢
 └── README.md

@@ -35,6 +35,7 @@ The following describes **this branch (`mcp-oauth`)**'s installation and usage. 
 
 - Claude, in any MCP-connector-capable interface (e.g., Claude Code, Claude Apps)
 - The nl-to-dax MCP connector added under Settings → Connectors
+- Python 3.9+ (standard library only, no third-party packages). The MCP half of the flow doesn't need it, but query execution and bookmarks do — the skill checks this up front rather than failing at the last step
 - Git (optional; used only for the skill's version-check feature, unrelated to authentication; silently skipped if unavailable or offline)
 - **If running in Claude Apps**: its code execution sandbox blocks outbound connections to unknown domains by default. Go to Settings → Capabilities → Network egress and allow `api.powerbi.com` — otherwise Step 5's query execution fails with an error like `Tunnel connection failed: 403 Forbidden` (this doesn't affect the MCP connector itself, only the direct Power BI REST API call).
 
@@ -85,6 +86,7 @@ nl-to-dax/
 │   └── scripts/
 │       └── shared/
 │           ├── bookmarks.py            # Query-bookmark storage (list/show/save/delete) and storage-persistence detection
+│           ├── check_python_env.py     # Verifies Python version and required standard-library modules before anything else
 │           ├── check_update.py         # Optional: daily version check (compares remote git tags), unrelated to authentication
 │           └── execute_dax_query.py    # Sends the query directly to the Power BI executeQueries API using the MCP-issued access token
 └── README.md
