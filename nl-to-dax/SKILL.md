@@ -26,49 +26,37 @@ skill 可能安裝在專案內的 `.claude/skills/`，也可能安裝在使用�
 並將 <WORKSPACE_ROOT> 明確作為參數傳給以下所有腳本（腳本本身不會猜測工作區根目錄，
 若傳入的路徑不存在會直接回報錯誤及 Skill 目前所在路徑）。
 
--1.1 偵測作業系統
-判斷當前執行環境的作業系統：
-- Windows → <SKILL_ROOT>\scripts\windows\trigger_check_setup.ps1
-- macOS   → <SKILL_ROOT>/scripts/macos/trigger_check_setup.sh
-- Linux   → <SKILL_ROOT>/scripts/linux/trigger_check_setup.sh
+**執行腳本的方式**：一律直接呼叫 Python，不要透過任何 shell wrapper——Windows 用 `python`，
+macOS / Linux 用 `python3`，除了這個指令名稱之外其餘參數完全相同，因此以下各步驟只寫一種形式。
+路徑分隔符號用 `/` 即可，Windows 的 Python 同樣接受。
+（先前版本曾提供 .ps1/.sh 觸發腳本，已移除：Windows 預設的 PowerShell ExecutionPolicy 是
+Restricted，會直接擋掉未簽署的 .ps1，反而製造一個直接呼叫 Python 不會有的失敗點。）
 
--1.1b 檢查 Python 環境
-在執行任何 Skill 腳本前，先確認 Python 可用、版本 ≥ 3.9、且所有腳本會用到的標準函式庫模組都能正常匯入（此 Skill 只依賴標準函式庫，不需安裝任何第三方套件，所以這裡不是檢查套件，是檢查 Python 安裝本身是否完整）。依 -1.1 偵測到的作業系統執行對應指令：
+-1.1 執行前置檢查（單一指令取得所有狀態）
+Python 環境、設定狀態、版本更新、查詢書籤四項檢查已整併為一支腳本，只需執行一次：
 
-Windows（PowerShell）：
-powershell -File "<SKILL_ROOT>\scripts\windows\trigger_check_python_env.ps1"
+python "<SKILL_ROOT>/scripts/shared/preflight.py" "<WORKSPACE_ROOT>"
 
-macOS（bash）：
-bash "<SKILL_ROOT>/scripts/macos/trigger_check_python_env.sh"
+若指令本身找不到（例如「'python' 不是內部或外部命令」／「command not found」，代表連 Python 都沒裝）：告知使用者「找不到 Python，請先安裝 Python 3.9 以上版本」，停止流程。
 
-Linux（bash）：
-bash "<SKILL_ROOT>/scripts/linux/trigger_check_python_env.sh"
+回傳單一 JSON：
+{
+  "python":    {"python_version": "3.x.x", "version_ok": bool, "missing_modules": [...], "ok": bool},
+  "gated":     bool,
+  "setup":     {"settings_created": bool, "has_mask_key": bool, "has_server_url": bool, "has_model": bool, "model_sync_stale": bool, "settings_path_absolute": "...", "settings_path_relative": "..."|null},
+  "update":    {"current_version": "0.1", "latest_version": "0.2"|null, "update_available": bool, "checked": bool},
+  "bookmarks": {"models": {"<pbi_config_id>": [{"name", "request", "created_at", "updated_at"}]}, "persistent": bool, "proven": bool}
+}
 
-若指令本身找不到（例如「'python' 不是內部或外部命令」／「command not found」，代表連 Python 都沒裝，腳本無法執行）：告知使用者「找不到 Python，請先安裝 Python 3.9 以上版本」，停止流程。
+先看 `python` 與 `gated`：
+- `gated = true` 代表 Python 版本或標準函式庫不符，此時只有 `python` 欄位有值，其餘欄位不存在。
+  - `version_ok = false`：告知使用者目前偵測到的版本（`python_version`），請其升級至 3.9 以上，停止流程。
+  - `missing_modules` 非空（極少見，通常代表 Python 安裝不完整或為精簡版）：告知使用者缺少哪些標準函式庫模組，建議重新安裝完整版 Python，停止流程。
+- `gated = false` → 繼續往下依 `setup` 分支處理。
 
-若指令有執行，回傳 JSON 格式如下：
-{"python_version": "3.x.x", "version_ok": bool, "missing_modules": [...], "ok": bool}
+各區段互相獨立：某一段檢查失敗時該欄位會是 `{"ok": false, "error": "..."}`，其餘欄位仍然有效。`update`/`bookmarks` 失敗不影響主流程，靜默略過即可；`setup` 失敗才需要回報使用者。
 
-- `ok = true`：檢查通過，繼續下一步。
-- `version_ok = false`：告知使用者目前偵測到的版本（`python_version`），請其升級至 3.9 以上，停止流程。
-- `missing_modules` 非空（極少見，通常代表 Python 安裝不完整或為精簡版）：告知使用者缺少哪些標準函式庫模組，建議重新安裝完整版 Python，停止流程。
-
--1.2 執行環境檢查腳本
-根據作業系統執行對應指令（將 <SKILL_ROOT>、<WORKSPACE_ROOT> 替換為實際路徑）：
-
-Windows（PowerShell）：
-powershell -File "<SKILL_ROOT>\scripts\windows\trigger_check_setup.ps1" -WorkspaceRoot "<WORKSPACE_ROOT>"
-
-macOS（bash）：
-bash "<SKILL_ROOT>/scripts/macos/trigger_check_setup.sh" "<WORKSPACE_ROOT>"
-
-Linux（bash）：
-bash "<SKILL_ROOT>/scripts/linux/trigger_check_setup.sh" "<WORKSPACE_ROOT>"
-
-腳本回傳 JSON 格式如下：
-{"settings_created": bool, "has_mask_key": bool, "has_server_url": bool, "has_model": bool, "model_sync_stale": bool, "settings_path_absolute": "...", "settings_path_relative": "..."|null}
-
--1.3 依回傳結果分支處理
+-1.2 依 setup 結果分支處理
 
 若 has_mask_key = false：
 先用 Read 工具讀取上一步 JSON 回傳的 `settings_path_absolute`（settings.local.json 的實際路徑，位於使用者家目錄下，不是 <SKILL_ROOT>/config/ 底下——skill 執行環境每次對話可能重新產生，設定檔必須放在持續存在的位置），取得實際的 CREDENTIAL_SERVER_URL 值。
@@ -94,29 +82,16 @@ settings.local.json 的連結**直接使用上一步 JSON 回傳的欄位，不�
 若 has_mask_key = true：
 若 has_model = false 或 model_sync_stale = true，先執行以下指令同步最新語意模型（管理員可能隨時變動使用者的已分配模型，has_model = true 只代表本地曾經同步過、不代表清單仍最新，因此每日至少強制重新同步一次）：
 
-Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\fetch_model.py" "<WORKSPACE_ROOT>"
-
-macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/fetch_model.py" "<WORKSPACE_ROOT>"
+python "<SKILL_ROOT>/scripts/shared/fetch_model.py" "<WORKSPACE_ROOT>"
 
 若執行失敗，回報 stderr 錯誤訊息並停止流程（即使本地已有舊的模型快取，也不要靜默沿用，因為無法確認使用者目前是否仍有權限存取這些模型）。
 
--1.4 檢查 Skill 版本
-執行以下指令（內部每日最多實際查詢一次，其餘時間直接讀快取，不會有感延遲）：
+-1.3 版本更新提醒
+使用 -1.1 已取得的 `update` 欄位，純粹是提醒性質，不影響主流程：
+- 若 `checked = false` 或該區段回傳 `{"ok": false, ...}`（例如沒有網路、沒有 git、遠端尚未打過任何 tag）：靜默略過，不告知使用者。
+- 若 `update_available = true`：在稍後的回覆中簡短提醒一次即可，例如「（偵測到新版本 v{latest_version}，目前使用 v{current_version}，建議之後更新部署）」，不要中斷流程、不要因此停下來等使用者回應。
 
-Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\check_update.py"
-
-macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/check_update.py"
-
-回傳 JSON 格式：{"current_version": "0.1", "latest_version": "0.2"|null, "update_available": bool, "checked": bool}
-此步驟純粹是提醒性質，不影響主流程：
-- 若執行失敗、或 checked = false（例如沒有網路、沒有 git 權限、遠端尚未打過任何 tag）：靜默略過，不告知使用者。
-- 若 update_available = true：在稍後的回覆中簡短提醒一次即可，例如「（偵測到新版本 v{latest_version}，目前使用 v{current_version}，建議之後更新部署）」，不要中斷流程、不要因此停下來等使用者回應。
-
-不論以上步驟是否執行，接著都進行模型選擇（見下方「模型選擇流程」）。
+接著進行模型選擇（見下方「模型選擇流程」）。
 
 模型選擇流程：
 1. 讀取 <WORKSPACE_ROOT>/pbi_config/models_index.json，取得所有可用模型清單
@@ -125,11 +100,7 @@ python3 "<SKILL_ROOT>/scripts/shared/check_update.py"
 4. 記住選定的 pbi_config_id，後續步驟皆使用此 ID
 5. 依選定的 pbi_config_id 呼叫以下指令向 Server 取得該模型的 Access Token：
 
-Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\fetch_credential.py" <pbi_config_id>
-
-macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/fetch_credential.py" <pbi_config_id>
+python "<SKILL_ROOT>/scripts/shared/fetch_credential.py" <pbi_config_id>
 
 若執行失敗：向使用者說明「Access Token 取得失敗，請確認 PBI_MASK_KEY 是否正確；若金鑰無誤，可能是伺服器端（申請程式）的設定問題，請聯繫服務網址管理員協助排查」，並停止流程。
 不要在回覆中逐字貼出 stderr 的原始錯誤內容——其中可能包含伺服器內部的識別碼、密鑰設定等基礎設施細節（例如 Azure AD App ID），不適合暴露給一般使用者；僅在使用者主動要求查看技術細節時才提供。
@@ -150,11 +121,7 @@ python3 "<SKILL_ROOT>/scripts/shared/fetch_credential.py" <pbi_config_id>
 若 model_description 為 null（回退路徑）：
 執行以下指令取得該模型的整合結構化資料（relationships + 所有 tables），不要自行用 Read 工具逐一開啟 tables/ 目錄下的檔案，也不要委派給其他 Skill 或 subagent 處理：
 
-Windows（PowerShell）：
-powershell -File "<SKILL_ROOT>\scripts\windows\trigger_model_overview.ps1" -WorkspaceRoot "<WORKSPACE_ROOT>" -PbiConfigId "<pbi_config_id>"
-
-macOS / Linux：
-bash "<SKILL_ROOT>/scripts/macos/trigger_model_overview.sh" "<WORKSPACE_ROOT>" "<pbi_config_id>"（Linux 對應 scripts/linux 路徑）
+python "<SKILL_ROOT>/scripts/shared/model_overview.py" "<WORKSPACE_ROOT>" "<pbi_config_id>"
 
 若執行失敗，回報 stderr 錯誤訊息並停止流程。
 
@@ -184,18 +151,12 @@ bash "<SKILL_ROOT>/scripts/macos/trigger_model_overview.sh" "<WORKSPACE_ROOT>" "
 ---
 
 書籤展示流程：
-模型概覽輸出完之後、詢問「您想查詢什麼？」之前，執行以下指令列出該模型已存的查詢書籤：
+模型概覽輸出完之後、詢問「您想查詢什麼？」之前，取出該模型的查詢書籤。
 
-Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\bookmarks.py" list <pbi_config_id>
+**不需要再執行任何指令**——-1.1 的 preflight 已經帶回 `bookmarks.models`（依 pbi_config_id 分組），直接取 `bookmarks.models[<選定的 pbi_config_id>]` 即可（該 key 不存在代表這個模型還沒有書籤）。每筆為 `{"name", "request", "created_at", "updated_at"}`，已依 `updated_at` 由新到舊排序。
 
-macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/bookmarks.py" list <pbi_config_id>
-
-回傳 JSON：{"success": true, "model_key": "...", "bookmarks": [{"name", "request", "created_at", "updated_at"}], "persistent": bool, "proven": bool}
-
-- `bookmarks` 為空陣列 → 不輸出任何書籤相關文字，直接進入提問。
-- `bookmarks` 非空 → 在模型概覽的**最下方**附上一段簡短清單（依 `updated_at` 由新到舊，最多列 10 筆，超過時於結尾註明「（另有 N 筆，可請我列出全部）」）：
+- 清單為空 → 不輸出任何書籤相關文字，直接進入提問。
+- 清單非空 → 在模型概覽的**最下方**附上一段簡短清單（最多列 10 筆，超過時於結尾註明「（另有 N 筆，可請我列出全部）」）：
 
 ---
 **已儲存的查詢書籤**
@@ -206,9 +167,13 @@ python3 "<SKILL_ROOT>/scripts/shared/bookmarks.py" list <pbi_config_id>
 ---
 
 只列名稱與需求描述，**不要列出 DAX 內容**（那會佔掉大量上下文）。
-若 `persistent` 為 false，在清單後補一句：「（目前環境的檔案在對話結束後會清除，書籤僅在本次對話有效）」。
+若 `bookmarks.persistent` 為 false，在清單後補一句：「（目前環境的檔案在對話結束後會清除，書籤僅在本次對話有效）」。
 
-使用者指定要用某個書籤時，執行 `bookmarks.py show <pbi_config_id> "<name>"` 取得該書籤的 `dax` 與 `request`，並詢問使用者要用哪一種方式：
+使用者指定要用某個書籤時，執行以下指令取得該書籤的 `dax` 與 `request`（清單本身不含 DAX，需要時才取）：
+
+python "<SKILL_ROOT>/scripts/shared/bookmarks.py" show <pbi_config_id> "<name>"
+
+並詢問使用者要用哪一種方式：
 1. **直接執行存下的 DAX**——快，跳過 Step 0-4 的推理，直接進 Step 5。
 2. **用原需求重新生成**——以書籤的 `request` 作為本次需求，正常走 Step 0.4-4 再進 Step 5；篩選設定檔或模型結構有變動時會反映最新狀態。
 
@@ -342,14 +307,7 @@ Step 5：執行 Power BI REST API 查詢
 5.2 執行對應觸發腳本
 沿用 Step -1.1 偵測到的作業系統及 Step -1.3 模型選擇流程中記住的 <pbi_config_id>，執行以下對應指令：
 
-Windows（PowerShell）：
-powershell -File "<SKILL_ROOT>\scripts\windows\trigger_pbi_api.ps1" -WorkspaceRoot "<WORKSPACE_ROOT>" -PbiConfigId "<pbi_config_id>" -DaxQueryFile "<WORKSPACE_ROOT>\pbi_query\dax_query.txt"
-
-macOS（bash）：
-bash "<SKILL_ROOT>/scripts/macos/trigger_pbi_api.sh" "<WORKSPACE_ROOT>" "<pbi_config_id>" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt"
-
-Linux（bash）：
-bash "<SKILL_ROOT>/scripts/linux/trigger_pbi_api.sh" "<WORKSPACE_ROOT>" "<pbi_config_id>" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt"
+python "<SKILL_ROOT>/scripts/shared/pbi_api_client.py" "<WORKSPACE_ROOT>" "<pbi_config_id>" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt"
 
 腳本執行成功後，會產生 pbi_query/query_result.csv。
 腳本的標準輸出（stdout）會印出一行 JSON 摘要，格式如下：
@@ -370,11 +328,7 @@ bash "<SKILL_ROOT>/scripts/linux/trigger_pbi_api.sh" "<WORKSPACE_ROOT>" "<pbi_co
 - 使用者不要 → 不做任何事，流程結束。
 - 使用者要 → 詢問「這個查詢要叫什麼名稱？」，取得名稱後執行：
 
-Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\bookmarks.py" save <pbi_config_id> "<名稱>" "<WORKSPACE_ROOT>\pbi_query\dax_query.txt" "<使用者本次的原始需求文字>"
-
-macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/bookmarks.py" save <pbi_config_id> "<名稱>" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt" "<使用者本次的原始需求文字>"
+python "<SKILL_ROOT>/scripts/shared/bookmarks.py" save <pbi_config_id> "<名稱>" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt" "<使用者本次的原始需求文字>"
 
 DAX 一律由腳本從 `dax_query.txt` 讀取，**不要自己把 DAX 字串當作參數傳入、也不要用 Edit 工具手動改 bookmarks.json**——DAX 內含大量雙引號，手動轉義極易出錯。
 

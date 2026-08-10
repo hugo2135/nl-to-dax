@@ -33,7 +33,7 @@
 | API 直接執行 | Server 統一處理 Azure AD 驗證，Skill 直接使用 access token 執行查詢並輸出 CSV |
 | 查詢書籤 | 查詢成功後可命名存檔，下次執行時列在模型概覽最下方，可直接重跑或用原需求重新生成 |
 | 版本提醒 | 每日至多檢查一次是否有新版本，有更新時簡短提醒，不中斷使用 |
-| 環境自檢 | 執行前先確認 Python 版本與所需標準函式庫模組皆可用，異常時清楚告知原因 |
+| 環境自檢 | 啟動時一次檢查 Python 版本、設定狀態、版本更新與書籤，異常時清楚告知原因 |
 | 每日模型重新同步 | 管理員異動使用者的已分配模型後，最晚隔天即自動重新同步，不會卡在舊清單 |
 
 ---
@@ -95,19 +95,16 @@ nl-to-dax/
 │   │   ├── investigation.json          # 排查模式（覆蓋預設篩選）
 │   │   └── refund_analysis.json        # 退費分析模式（覆蓋預設篩選）
 │   └── scripts/
-│       ├── shared/                     # 跨平台共用 Python 腳本
-│       │   ├── skill_settings.py       # 共用工具：skill_root/workspace_root 判斷、設定檔讀寫
-│       │   ├── bookmarks.py            # 查詢書籤的存取（list/show/save/delete）與環境持久性偵測
-│       │   ├── check_python_env.py     # 檢查 Python 版本與標準函式庫模組是否可用
-│       │   ├── check_setup.py          # 環境檢查（回傳 JSON 狀態，含每日模型同步旗標）
-│       │   ├── check_update.py         # 每日版本檢查（比對遠端 git tag）
-│       │   ├── fetch_credential.py     # 向申請程式取得 Access Token
-│       │   ├── fetch_model.py          # 向申請程式同步語意模型，並清除已收回權限的舊快取
-│       │   ├── model_overview.py       # 彙整單一模型的 relationships + tables，供模型概覽使用
-│       │   └── pbi_api_client.py       # Power BI REST API 客戶端
-│       ├── windows/                    # Windows PowerShell 觸發腳本
-│       ├── macos/                      # macOS bash 觸發腳本
-│       └── linux/                      # Linux bash 觸發腳本
+│       └── shared/                     # 跨平台共用 Python 腳本（由 Claude 直接以 python 呼叫，無 shell wrapper）
+│           ├── preflight.py            # 啟動前置檢查：一次回傳 Python 環境／設定狀態／版本更新／查詢書籤
+│           ├── skill_settings.py       # 共用工具：skill_root/workspace_root 判斷、設定檔讀寫
+│           ├── bookmarks.py            # 查詢書籤的存取（list/show/save/delete）與環境持久性偵測
+│           ├── check_setup.py          # 環境檢查（回傳 JSON 狀態，含每日模型同步旗標）
+│           ├── check_update.py         # 每日版本檢查（比對遠端 git tag）
+│           ├── fetch_credential.py     # 向申請程式取得 Access Token
+│           ├── fetch_model.py          # 向申請程式同步語意模型，並清除已收回權限的舊快取
+│           ├── model_overview.py       # 彙整單一模型的 relationships + tables，供模型概覽使用
+│           └── pbi_api_client.py       # Power BI REST API 客戶端
 └── README.md
 ```
 
