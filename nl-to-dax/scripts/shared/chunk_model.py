@@ -1,3 +1,5 @@
+from __future__ import annotations  # 讓型別註解不在 def 當下求值，`str | None` 才能在 Python 3.9 執行
+
 import json
 import os
 import re
