@@ -70,7 +70,7 @@ git push origin v0.2
 | `chunk_model.py` | 拆分語意模型 JSON | 不知道 DAX、不知道 API |
 | `pbi_api_client.py` | 呼叫 Power BI REST API | 不知道篩選邏輯、不知道模型結構 |
 | `filters/*.json` | 宣告業務規則篩選條件 | 不含任何程式邏輯 |
-| `trigger_*.ps1 / *.sh` | 薄薄的 shell wrapper | 不含業務邏輯，只負責傳參給 Python |
+| `preflight.py` | 啟動檢查的編排層 | 不含檢查邏輯本身，只呼叫各腳本並組裝成單一 JSON |
 
 **原則：新增業務規則優先考慮新增設定檔，而非修改程式碼。**
 
@@ -88,9 +88,13 @@ git push origin v0.2
 - **輸出 CSV 前先確保目錄存在**（`os.makedirs(..., exist_ok=True)`），避免路徑不存在導致靜默失敗
 
 ### 跨平台相容性
-- 新增腳本時三個平台（Windows / macOS / Linux）必須同步維護
-- Windows 腳本使用 PowerShell，Unix 腳本使用 bash；共用邏輯下沉至 `scripts/shared/`
-- 路徑分隔符號在 Python 內一律用 `os.path.join()`，不硬寫 `/` 或 `\`
+- **不使用 shell wrapper**：所有腳本一律由 Claude 直接以 `python`（Windows）／`python3`（macOS/Linux）呼叫，全部放在 `scripts/shared/`，不再維護 `scripts/windows|macos|linux/` 的 `.ps1`/`.sh` 觸發腳本。
+  - 原因一：Windows 用戶端版的 PowerShell ExecutionPolicy 預設是 `Restricted`，會直接擋掉未簽署的 `.ps1`（實測確認），等於 wrapper 自己製造了一個直接呼叫 Python 不會有的失敗點。
+  - 原因二：那些 wrapper 內容只是 `python <絕對路徑> $args`，而 SKILL.md 本來就要分平台決定呼叫哪一個，連「封裝 python/python3 差異」的價值都沒有。
+  - 兩種呼叫方式對 `import` 解析沒有差異：Python 會把**腳本自身所在目錄**放進 `sys.path`，與工作目錄無關（實測從 `C:\Windows` 執行仍正常）。
+- 路徑分隔符號在 Python 內一律用 `os.path.join()`，不硬寫 `/` 或 `\`；SKILL.md 內的指令範例統一寫 `/`（Windows 的 Python 同樣接受）
+- 啟動檢查一律加進 `preflight.py`，不要新增第二支需要 Claude 另外呼叫的檢查腳本
+- **`preflight.py` 的版本閘門必須維持在其餘 `import` 之前**：它負責回報「Python 版本夠不夠」，若在頂層就 import 其他模組，而那些模組用到較新語法（例如 PEP 604 的 `str | None` 需要 3.10+），使用者拿到的會是 traceback 而不是「請升級 Python」
 
 ---
 

@@ -26,47 +26,36 @@ skill 可能安裝在專案內的 `.claude/skills/`，也可能安裝在使用�
 並將 <WORKSPACE_ROOT> 明確作為參數傳給以下所有腳本（腳本本身不會猜測工作區根目錄，
 若傳入的路徑不存在會直接回報錯誤及 Skill 目前所在路徑）。
 
--1.1 偵測作業系統
-判斷當前執行環境的作業系統：
-- Windows → <SKILL_ROOT>\scripts\windows\trigger_check_setup.ps1
-- macOS   → <SKILL_ROOT>/scripts/macos/trigger_check_setup.sh
-- Linux   → <SKILL_ROOT>/scripts/linux/trigger_check_setup.sh
+**執行腳本的方式**：一律直接呼叫 Python，不要透過任何 shell wrapper——Windows 用 `python`，
+macOS / Linux 用 `python3`，除了這個指令名稱之外其餘參數完全相同，因此以下各步驟只寫一種形式。
+路徑分隔符號用 `/` 即可，Windows 的 Python 同樣接受。
+（先前版本曾提供 .ps1/.sh 觸發腳本，已移除：Windows 預設的 PowerShell ExecutionPolicy 是
+Restricted，會直接擋掉未簽署的 .ps1，反而製造一個直接呼叫 Python 不會有的失敗點。）
 
--1.1b 檢查 Python 環境
-在執行任何 Skill 腳本前，先確認 Python 可用、版本 ≥ 3.9、且所有腳本會用到的標準函式庫模組都能正常匯入（此 Skill 只依賴標準函式庫，不需安裝任何第三方套件，所以這裡不是檢查套件，是檢查 Python 安裝本身是否完整）。依 -1.1 偵測到的作業系統執行對應指令：
+-1.1 執行前置檢查（單一指令取得所有狀態）
+Python 環境、設定狀態、版本更新、查詢書籤四項檢查已整併為一支腳本，只需執行一次。
+Windows 用 `python`，macOS / Linux 用 `python3`，其餘完全相同：
 
-Windows（PowerShell）：
-powershell -File "<SKILL_ROOT>\scripts\windows\trigger_check_python_env.ps1"
+python "<SKILL_ROOT>/scripts/shared/preflight.py" "<WORKSPACE_ROOT>"
 
-macOS（bash）：
-bash "<SKILL_ROOT>/scripts/macos/trigger_check_python_env.sh"
+若指令本身找不到（例如「'python' 不是內部或外部命令」／「command not found」，代表連 Python 都沒裝）：告知使用者「找不到 Python，請先安裝 Python 3.9 以上版本」，停止流程。
 
-Linux（bash）：
-bash "<SKILL_ROOT>/scripts/linux/trigger_check_python_env.sh"
+回傳單一 JSON：
+{
+  "python":    {"python_version": "3.x.x", "version_ok": bool, "missing_modules": [...], "ok": bool},
+  "gated":     bool,
+  "setup":     {"has_credentials_file": bool, "models": [{"dataset_id", "dataset_name", "has_structure", "table_count", "model_description"}], "orphaned_structures": [...]},
+  "update":    {"current_version": "0.1", "latest_version": "0.2"|null, "update_available": bool, "checked": bool},
+  "bookmarks": {"models": {"<dataset_id>": [{"name", "request", "created_at", "updated_at"}]}, "persistent": bool, "proven": bool}
+}
 
-若指令本身找不到（例如「'python' 不是內部或外部命令」／「command not found」，代表連 Python 都沒裝，腳本無法執行）：告知使用者「找不到 Python，請先安裝 Python 3.9 以上版本」，停止流程。
+先看 `python` 與 `gated`：
+- `gated = true` 代表 Python 版本或標準函式庫不符，此時只有 `python` 欄位有值，其餘欄位不存在。
+  - `version_ok = false`：告知使用者目前偵測到的版本（`python_version`），請其升級至 3.9 以上，停止流程。
+  - `missing_modules` 非空（極少見，通常代表 Python 安裝不完整或為精簡版）：告知使用者缺少哪些標準函式庫模組，建議重新安裝完整版 Python，停止流程。
+- `gated = false` → 繼續往下依 `setup` 分支處理。
 
-若指令有執行，回傳 JSON 格式如下：
-{"python_version": "3.x.x", "version_ok": bool, "missing_modules": [...], "ok": bool}
-
-- `ok = true`：檢查通過，繼續下一步。
-- `version_ok = false`：告知使用者目前偵測到的版本（`python_version`），請其升級至 3.9 以上，停止流程。
-- `missing_modules` 非空（極少見，通常代表 Python 安裝不完整或為精簡版）：告知使用者缺少哪些標準函式庫模組，建議重新安裝完整版 Python，停止流程。
-
--1.2 執行環境檢查腳本
-根據作業系統執行對應指令（將 <SKILL_ROOT>、<WORKSPACE_ROOT> 替換為實際路徑）：
-
-Windows（PowerShell）：
-powershell -File "<SKILL_ROOT>\scripts\windows\trigger_check_setup.ps1" -WorkspaceRoot "<WORKSPACE_ROOT>"
-
-macOS（bash）：
-bash "<SKILL_ROOT>/scripts/macos/trigger_check_setup.sh" "<WORKSPACE_ROOT>"
-
-Linux（bash）：
-bash "<SKILL_ROOT>/scripts/linux/trigger_check_setup.sh" "<WORKSPACE_ROOT>"
-
-腳本回傳 JSON 格式如下：
-{"has_credentials_file": bool, "models": [{"dataset_id", "dataset_name", "has_structure": bool, "table_count", "model_description"}], "orphaned_structures": ["dataset_id", ...]}
+各區段互相獨立：某一段檢查失敗時該欄位會是 `{"ok": false, "error": "..."}`，其餘欄位仍然有效。`update`/`bookmarks` 失敗不影響主流程，靜默略過即可；`setup` 失敗才需要回報使用者。
 
 **安全規則（絕對遵守）**：`<SKILL_ROOT>/config/azure_ad_credentials.json` 含 Azure AD `tenant_id`/`client_id`/`client_secret`。**絕對不要用 Read 工具開啟這個檔案，絕對不要用 Edit 工具寫入這個檔案，絕對不要在對話中詢問或接受這些值**。這些值只能由使用者自行在編輯器/檔案總管中填寫，Claude 全程不經手。即使使用者主動在對話中貼出憑證，也只回覆「已收到但不會使用此值」，並提醒對方因為這組憑證已經進入對話紀錄，應立即到 Azure AD 撤銷/重新產生該 client secret。`dataset_id`/`workspace_id` 不是機密資訊，可以正常顯示給使用者。
 
@@ -89,43 +78,26 @@ bash "<SKILL_ROOT>/scripts/linux/trigger_check_setup.sh" "<WORKSPACE_ROOT>"
 若 models 中沒有任何一筆 has_structure = true：
 列出 `models` 中每一筆的 `{dataset_name}（{dataset_id}）`，告知使用者這些資料集都還沒有語意模型結構，請選擇其中一個要處理的資料集，並依 README「取得語意模型結構」章節，用瀏覽器 F12 開發者工具從 BI 系統的 Network 分頁複製模型結構回應存成 JSON，執行：
 
-Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\chunk_model.py" "<WORKSPACE_ROOT>" <dataset_id> "<json 檔路徑>" ["<說明檔路徑>"]
-
-macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/chunk_model.py" "<WORKSPACE_ROOT>" <dataset_id> "<json 檔路徑>" ["<說明檔路徑>"]
+python "<SKILL_ROOT>/scripts/shared/chunk_model.py" "<WORKSPACE_ROOT>" <dataset_id> "<json 檔路徑>" ["<說明檔路徑>"]
 
 `<dataset_id>` 必須是使用者選擇的那筆 `models` 項目的 key。若 `orphaned_structures` 非空，一併提醒使用者：這些 `dataset_id` 底下有語意模型結構、但已經不在 `azure_ad_credentials.json` 的 `models` 裡登記，可能是已移除或打錯 key，建議確認。
 流程到此停止。
 
--1.4 檢查 Skill 版本
-執行以下指令（內部每日最多實際查詢一次，其餘時間直接讀快取，不會有感延遲）：
+-1.3 版本更新提醒
+使用 -1.1 已取得的 `update` 欄位，純粹是提醒性質，不影響主流程：
+- 若 `checked = false` 或該區段回傳 `{"ok": false, ...}`（例如沒有網路、沒有 git、遠端尚未打過任何 tag）：靜默略過，不告知使用者。
+- 若 `update_available = true`：在稍後的回覆中簡短提醒一次即可，例如「（偵測到新版本 v{latest_version}，目前使用 v{current_version}，建議之後更新部署）」，不要中斷流程、不要因此停下來等使用者回應。
 
-Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\check_update.py"
-
-macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/check_update.py"
-
-回傳 JSON 格式：{"current_version": "0.1", "latest_version": "0.2"|null, "update_available": bool, "checked": bool}
-此步驟純粹是提醒性質，不影響主流程：
-- 若執行失敗、或 checked = false（例如沒有網路、沒有 git 權限、遠端尚未打過任何 tag）：靜默略過，不告知使用者。
-- 若 update_available = true：在稍後的回覆中簡短提醒一次即可，例如「（偵測到新版本 v{latest_version}，目前使用 v{current_version}，建議之後更新部署）」，不要中斷流程、不要因此停下來等使用者回應。
-
-不論以上步驟是否執行，接著都進行模型選擇（見下方「模型選擇流程」）。
+接著進行模型選擇（見下方「模型選擇流程」）。
 
 模型選擇流程：
-1. 使用 -1.2 已取得的 `models` 中 `has_structure = true` 的項目（不需要再另外讀取任何檔案，check_setup.py 已經算好可查詢的模型清單）
+1. 使用 -1.1 已取得的 `setup.models` 中 `has_structure = true` 的項目（不需要再另外讀取任何檔案，preflight 已經算好可查詢的模型清單）
 2. 若只有一個 → 自動選定，告知使用者：「使用模型：{dataset_name}」
 3. 若有多個 → 列出 `{dataset_name}（{dataset_id}）` 供使用者選擇，等待使用者指定後繼續
 4. 記住選定的 dataset_id，後續步驟皆使用此 ID
 5. 依選定的 dataset_id 呼叫以下指令向 Azure AD 換取該模型的 Access Token：
 
-Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\fetch_credential.py" <dataset_id>
-
-macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/fetch_credential.py" <dataset_id>
+python "<SKILL_ROOT>/scripts/shared/fetch_credential.py" <dataset_id>
 
 若執行失敗：向使用者說明「Access Token 取得失敗，請確認 azure_ad_credentials.json 的憑證與 workspace_id 是否正確」，並停止流程。
 不要在回覆中逐字貼出 stderr 的原始錯誤內容——其中可能包含 Azure AD App ID 等基礎設施細節，不適合暴露給一般使用者；僅在使用者主動要求查看技術細節時才提供。
@@ -146,11 +118,7 @@ python3 "<SKILL_ROOT>/scripts/shared/fetch_credential.py" <dataset_id>
 若 model_description 為 null（回退路徑）：
 執行以下指令取得該模型的整合結構化資料（relationships + 所有 tables），不要自行用 Read 工具逐一開啟 tables/ 目錄下的檔案，也不要委派給其他 Skill 或 subagent 處理：
 
-Windows（PowerShell）：
-powershell -File "<SKILL_ROOT>\scripts\windows\trigger_model_overview.ps1" -WorkspaceRoot "<WORKSPACE_ROOT>" -PbiConfigId "<dataset_id>"
-
-macOS / Linux：
-bash "<SKILL_ROOT>/scripts/macos/trigger_model_overview.sh" "<WORKSPACE_ROOT>" "<dataset_id>"（Linux 對應 scripts/linux 路徑；`-PbiConfigId`/位置參數傳入的值即為 dataset_id，腳本本身不需要修改）
+python "<SKILL_ROOT>/scripts/shared/model_overview.py" "<WORKSPACE_ROOT>" "<dataset_id>"
 
 若執行失敗，回報 stderr 錯誤訊息並停止流程。
 
@@ -180,18 +148,12 @@ bash "<SKILL_ROOT>/scripts/macos/trigger_model_overview.sh" "<WORKSPACE_ROOT>" "
 ---
 
 書籤展示流程：
-模型概覽輸出完之後、詢問「您想查詢什麼？」之前，執行以下指令列出該模型已存的查詢書籤：
+模型概覽輸出完之後、詢問「您想查詢什麼？」之前，取出該模型的查詢書籤。
 
-Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\bookmarks.py" list <dataset_id>
+**不需要再執行任何指令**——-1.1 的 preflight 已經帶回 `bookmarks.models`（依 dataset_id 分組），直接取 `bookmarks.models[<選定的 dataset_id>]` 即可（該 key 不存在代表這個模型還沒有書籤）。每筆為 `{"name", "request", "created_at", "updated_at"}`，已依 `updated_at` 由新到舊排序。
 
-macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/bookmarks.py" list <dataset_id>
-
-回傳 JSON：{"success": true, "model_key": "...", "bookmarks": [{"name", "request", "created_at", "updated_at"}], "persistent": bool, "proven": bool}
-
-- `bookmarks` 為空陣列 → 不輸出任何書籤相關文字，直接進入提問。
-- `bookmarks` 非空 → 在模型概覽的**最下方**附上一段簡短清單（依 `updated_at` 由新到舊，最多列 10 筆，超過時於結尾註明「（另有 N 筆，可請我列出全部）」）：
+- 清單為空 → 不輸出任何書籤相關文字，直接進入提問。
+- 清單非空 → 在模型概覽的**最下方**附上一段簡短清單（最多列 10 筆，超過時於結尾註明「（另有 N 筆，可請我列出全部）」）：
 
 ---
 **已儲存的查詢書籤**
@@ -202,9 +164,13 @@ python3 "<SKILL_ROOT>/scripts/shared/bookmarks.py" list <dataset_id>
 ---
 
 只列名稱與需求描述，**不要列出 DAX 內容**（那會佔掉大量上下文）。
-若 `persistent` 為 false，在清單後補一句：「（目前環境的檔案在對話結束後會清除，書籤僅在本次對話有效）」。
+若 `bookmarks.persistent` 為 false，在清單後補一句：「（目前環境的檔案在對話結束後會清除，書籤僅在本次對話有效）」。
 
-使用者指定要用某個書籤時，執行 `bookmarks.py show <dataset_id> "<name>"` 取得該書籤的 `dax` 與 `request`，並詢問使用者要用哪一種方式：
+使用者指定要用某個書籤時，執行以下指令取得該書籤的 `dax` 與 `request`（清單本身不含 DAX，需要時才取）：
+
+python "<SKILL_ROOT>/scripts/shared/bookmarks.py" show <dataset_id> "<name>"
+
+並詢問使用者要用哪一種方式：
 1. **直接執行存下的 DAX**——快，跳過 Step 0-4 的推理，直接進 Step 5。
 2. **用原需求重新生成**——以書籤的 `request` 作為本次需求，正常走 Step 0.4-4 再進 Step 5；篩選設定檔或模型結構有變動時會反映最新狀態。
 
@@ -338,14 +304,7 @@ Step 5：執行 Power BI REST API 查詢
 5.2 執行對應觸發腳本
 沿用 Step -1.1 偵測到的作業系統及 Step -1.3 模型選擇流程中記住的 <dataset_id>，執行以下對應指令（`-PbiConfigId`/位置參數傳入的值即為 dataset_id）：
 
-Windows（PowerShell）：
-powershell -File "<SKILL_ROOT>\scripts\windows\trigger_pbi_api.ps1" -WorkspaceRoot "<WORKSPACE_ROOT>" -PbiConfigId "<dataset_id>" -DaxQueryFile "<WORKSPACE_ROOT>\pbi_query\dax_query.txt"
-
-macOS（bash）：
-bash "<SKILL_ROOT>/scripts/macos/trigger_pbi_api.sh" "<WORKSPACE_ROOT>" "<dataset_id>" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt"
-
-Linux（bash）：
-bash "<SKILL_ROOT>/scripts/linux/trigger_pbi_api.sh" "<WORKSPACE_ROOT>" "<dataset_id>" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt"
+python "<SKILL_ROOT>/scripts/shared/pbi_api_client.py" "<WORKSPACE_ROOT>" "<dataset_id>" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt"
 
 腳本執行成功後，會產生 pbi_query/query_result.csv。
 腳本的標準輸出（stdout）會印出一行 JSON 摘要，格式如下：
@@ -366,11 +325,7 @@ bash "<SKILL_ROOT>/scripts/linux/trigger_pbi_api.sh" "<WORKSPACE_ROOT>" "<datase
 - 使用者不要 → 不做任何事，流程結束。
 - 使用者要 → 詢問「這個查詢要叫什麼名稱？」，取得名稱後執行：
 
-Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\bookmarks.py" save <dataset_id> "<名稱>" "<WORKSPACE_ROOT>\pbi_query\dax_query.txt" "<使用者本次的原始需求文字>"
-
-macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/bookmarks.py" save <dataset_id> "<名稱>" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt" "<使用者本次的原始需求文字>"
+python "<SKILL_ROOT>/scripts/shared/bookmarks.py" save <dataset_id> "<名稱>" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt" "<使用者本次的原始需求文字>"
 
 DAX 一律由腳本從 `dax_query.txt` 讀取，**不要自己把 DAX 字串當作參數傳入、也不要用 Edit 工具手動改 bookmarks.json**——DAX 內含大量雙引號，手動轉義極易出錯。
 
