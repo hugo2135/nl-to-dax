@@ -45,6 +45,17 @@ def get_settings_path(skill_root: str) -> str:
     return os.path.join(skill_root, "config", "settings.local.json")
 
 
+def get_token_cache_path(skill_root: str) -> str:
+    """Access Token 快取（pbi_configs.json）放在 skill_root/config/ 底下。
+
+    刻意不放在使用者的工作區（<WORKSPACE_ROOT>/.claude/）：那是使用者當下開啟的任意
+    程式碼專案，該專案的 .gitignore 是否排除 .claude/ 不在本 skill 掌控範圍內，
+    含 access token 的檔案有被誤 commit 的風險。放在 skill 自己的 config/ 底下，
+    使用者層級安裝時完全不在任何專案 repo 內，專案內安裝時也受本 repo 的 .gitignore 保護。
+    """
+    return os.path.join(skill_root, "config", "pbi_configs.json")
+
+
 def ensure_settings_local(skill_root: str) -> bool:
     """若 config/settings.local.json 不存在則自動建立，回傳是否新建。"""
     settings_path = get_settings_path(skill_root)

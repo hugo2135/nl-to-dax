@@ -31,6 +31,7 @@
 | 關聯驗證 | 自動驗證資料表間的關聯有效性，缺口時主動發問 |
 | DAX 生成 | 輸出符合 Power BI REST API 規格的完整查詢語法（含 `EVALUATE`） |
 | API 直接執行 | Server 統一處理 Azure AD 驗證，Skill 直接使用 access token 執行查詢並輸出 CSV |
+| 查詢書籤 | 查詢成功後可命名存檔，下次執行時列在模型概覽最下方，可直接重跑或用原需求重新生成 |
 | 版本提醒 | 每日至多檢查一次是否有新版本，有更新時簡短提醒，不中斷使用 |
 | 環境自檢 | 執行前先確認 Python 版本與所需標準函式庫模組皆可用，異常時清楚告知原因 |
 | 每日模型重新同步 | 管理員異動使用者的已分配模型後，最晚隔天即自動重新同步，不會卡在舊清單 |
@@ -96,6 +97,7 @@ nl-to-dax/
 │   └── scripts/
 │       ├── shared/                     # 跨平台共用 Python 腳本
 │       │   ├── skill_settings.py       # 共用工具：skill_root/workspace_root 判斷、設定檔讀寫
+│       │   ├── bookmarks.py            # 查詢書籤的存取（list/show/save/delete）與環境持久性偵測
 │       │   ├── check_python_env.py     # 檢查 Python 版本與標準函式庫模組是否可用
 │       │   ├── check_setup.py          # 環境檢查（回傳 JSON 狀態，含每日模型同步旗標）
 │       │   ├── check_update.py         # 每日版本檢查（比對遠端 git tag）
@@ -109,12 +111,16 @@ nl-to-dax/
 └── README.md
 ```
 
-執行期間自動產生（不納入版本控制）：
+執行期間自動產生（皆已納入 `.gitignore`）：
 
 ```
+<SKILL_ROOT>/config/
+├── settings.local.json           # PBI_MASK_KEY 與服務網址（敏感）
+├── pbi_configs.json              # Access Token 快取（敏感）
+├── bookmarks.json                # 查詢書籤（依模型分組）
+└── env_probe.json                # 判斷本機檔案能否跨對話存活的探針
+
 <你的工作區根目錄>/
-├── .claude/
-│   └── pbi_configs.json          # Access Token 快取（敏感，需受 .gitignore 保護）
 ├── pbi_config/                   # 語意模型快取（fetch_model.py 同步而來，跨查詢重複使用）
 │   ├── models_index.json         # 可用模型清單
 │   ├── last_sync.json            # 上次成功同步日期，決定是否需要每日重新同步
@@ -157,6 +163,21 @@ Skill 自動完成：環境初始化（Python 檢查）→ 版本檢查 → 模�
 
 ---
 
+## 查詢書籤
+
+查詢成功後，Skill 會問您要不要把這次的 DAX 存成書籤並命名。之後每次執行 `/nl-to-dax`，選定模型後的模型概覽最下方就會列出該模型已存的書籤，可以直接說名稱重跑。
+
+書籤會同時存下 **DAX** 與**當初的自然語言需求**，重用時提供兩個選項：
+
+- **直接執行**：跳過推理步驟，最快、最省 token
+- **用原需求重新生成**：重新走一次 DAX 生成流程，會套用最新的篩選設定檔與模型結構
+
+之所以保留第二個選項，是因為存下的 DAX 是「凍結」的——如果當初生成的是寫死的日期區間（而非 `TODAY()` 這類相對日期函數），或之後 `filters/` 的篩選規則、管理員維護的語意模型有調整，直接重跑會得到過時的結果。Skill 偵測到書籤含字面日期時會主動提醒。
+
+書籤存在 `<SKILL_ROOT>/config/bookmarks.json`，依模型的 `pbi_config_id` 分組，所以不同模型的書籤不會互相混淆。
+
+---
+
 ## 輸出結果
 
 每次執行輸出以下三項：
@@ -176,7 +197,8 @@ Skill 自動完成：環境初始化（Python 檢查）→ 版本檢查 → 模�
 ## 注意事項
 
 - `PBI_MASK_KEY` 為個人專屬，請勿共用或外洩
-- `config/settings.local.json`、`.claude/pbi_configs.json` 皆含敏感資訊，請勿手動納入版本控制
+- `config/settings.local.json`、`config/pbi_configs.json` 皆含敏感資訊，請勿手動納入版本控制
+- Access Token 快取（`config/pbi_configs.json`）刻意放在 Skill 自己的目錄下，而不是使用者工作區的 `.claude/`——後者是您當下開啟的任意程式碼專案，該專案的 `.gitignore` 是否排除 `.claude/` 不在本 Skill 掌控範圍內，含 token 的檔案有被誤 commit 的風險
 - Access Token 有效期約 1 小時，過期後重新執行 Skill 即可自動更新
 - 語意模型由管理員集中維護；不論模型內容或使用者的已分配模型是否變動，Skill 每日至少強制重新同步一次，不會永遠沿用舊清單
 - Python 3.9+ 不足或標準函式庫模組缺失時，Skill 會在最開始就清楚告知原因並停止，不會執行到一半才失敗

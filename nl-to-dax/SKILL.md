@@ -126,10 +126,10 @@ python3 "<SKILL_ROOT>/scripts/shared/check_update.py"
 5. 依選定的 pbi_config_id 呼叫以下指令向 Server 取得該模型的 Access Token：
 
 Windows（PowerShell）：
-python "<SKILL_ROOT>\scripts\shared\fetch_credential.py" "<WORKSPACE_ROOT>" <pbi_config_id>
+python "<SKILL_ROOT>\scripts\shared\fetch_credential.py" <pbi_config_id>
 
 macOS / Linux：
-python3 "<SKILL_ROOT>/scripts/shared/fetch_credential.py" "<WORKSPACE_ROOT>" <pbi_config_id>
+python3 "<SKILL_ROOT>/scripts/shared/fetch_credential.py" <pbi_config_id>
 
 若執行失敗：向使用者說明「Access Token 取得失敗，請確認 PBI_MASK_KEY 是否正確；若金鑰無誤，可能是伺服器端（申請程式）的設定問題，請聯繫服務網址管理員協助排查」，並停止流程。
 不要在回覆中逐字貼出 stderr 的原始錯誤內容——其中可能包含伺服器內部的識別碼、密鑰設定等基礎設施細節（例如 Azure AD App ID），不適合暴露給一般使用者；僅在使用者主動要求查看技術細節時才提供。
@@ -182,6 +182,37 @@ bash "<SKILL_ROOT>/scripts/macos/trigger_model_overview.sh" "<WORKSPACE_ROOT>" "
 - {量值群組一}：{量值1}、{量值2}、...
 - {量值群組二}：...
 ---
+
+書籤展示流程：
+模型概覽輸出完之後、詢問「您想查詢什麼？」之前，執行以下指令列出該模型已存的查詢書籤：
+
+Windows（PowerShell）：
+python "<SKILL_ROOT>\scripts\shared\bookmarks.py" list <pbi_config_id>
+
+macOS / Linux：
+python3 "<SKILL_ROOT>/scripts/shared/bookmarks.py" list <pbi_config_id>
+
+回傳 JSON：{"success": true, "model_key": "...", "bookmarks": [{"name", "request", "created_at", "updated_at"}], "persistent": bool, "proven": bool}
+
+- `bookmarks` 為空陣列 → 不輸出任何書籤相關文字，直接進入提問。
+- `bookmarks` 非空 → 在模型概覽的**最下方**附上一段簡短清單（依 `updated_at` 由新到舊，最多列 10 筆，超過時於結尾註明「（另有 N 筆，可請我列出全部）」）：
+
+---
+**已儲存的查詢書籤**
+- 「{name}」：{request}
+- ...
+
+可以直接說書籤名稱重跑，或描述新的查詢需求。
+---
+
+只列名稱與需求描述，**不要列出 DAX 內容**（那會佔掉大量上下文）。
+若 `persistent` 為 false，在清單後補一句：「（目前環境的檔案在對話結束後會清除，書籤僅在本次對話有效）」。
+
+使用者指定要用某個書籤時，執行 `bookmarks.py show <pbi_config_id> "<name>"` 取得該書籤的 `dax` 與 `request`，並詢問使用者要用哪一種方式：
+1. **直接執行存下的 DAX**——快，跳過 Step 0-4 的推理，直接進 Step 5。
+2. **用原需求重新生成**——以書籤的 `request` 作為本次需求，正常走 Step 0.4-4 再進 Step 5；篩選設定檔或模型結構有變動時會反映最新狀態。
+
+若書籤的 DAX 內含寫死的日期區間（例如 `>= DATE(2026,7,1)` 這類字面日期，而非 `TODAY()`/`EOMONTH()` 等相對日期函數），在詢問時主動提醒使用者：這個書籤的時間範圍是固定的，若想查最新期間請選擇「重新生成」。
 
 Step 0：載入語意模型 (Load Semantic Model)
 本地 pbi_config/<pbi_config_id>/ 資料夾存放由申請程式拆分並同步的語意模型 chunks，結構如下：
@@ -331,6 +362,27 @@ bash "<SKILL_ROOT>/scripts/linux/trigger_pbi_api.sh" "<WORKSPACE_ROOT>" "<pbi_co
 - 詢問使用者：「是否需要 Claude 讀取並解讀此 CSV 資料？」
 
 若腳本執行失敗，將 stderr 的錯誤訊息完整回報給使用者後停止。
+
+5.4 詢問是否儲存為書籤
+僅在查詢**成功**時詢問（失敗或零筆結果不問，那代表這個 DAX 還沒被驗證過）。若本次查詢是直接沿用既有書籤執行的，也不需要再問。
+
+詢問：「要把這次的查詢存成書籤，下次直接重跑嗎？」
+- 使用者不要 → 不做任何事，流程結束。
+- 使用者要 → 詢問「這個查詢要叫什麼名稱？」，取得名稱後執行：
+
+Windows（PowerShell）：
+python "<SKILL_ROOT>\scripts\shared\bookmarks.py" save <pbi_config_id> "<名稱>" "<WORKSPACE_ROOT>\pbi_query\dax_query.txt" "<使用者本次的原始需求文字>"
+
+macOS / Linux：
+python3 "<SKILL_ROOT>/scripts/shared/bookmarks.py" save <pbi_config_id> "<名稱>" "<WORKSPACE_ROOT>/pbi_query/dax_query.txt" "<使用者本次的原始需求文字>"
+
+DAX 一律由腳本從 `dax_query.txt` 讀取，**不要自己把 DAX 字串當作參數傳入、也不要用 Edit 工具手動改 bookmarks.json**——DAX 內含大量雙引號，手動轉義極易出錯。
+
+若「書籤展示流程」列出的清單中已有同名書籤，先向使用者確認是否覆蓋，確認後再執行（腳本會直接覆蓋並在回傳中帶 `"overwritten": true`）。
+
+回傳 JSON：{"success": true, "model_key": "...", "name": "...", "overwritten": bool, "persistent": bool, "proven": bool}
+- `persistent` 為 true → 回覆「已儲存書籤『{name}』，下次執行 /nl-to-dax 時會出現在書籤清單中。」
+- `persistent` 為 false → 回覆「已儲存書籤『{name}』（注意：目前環境的檔案在對話結束後會清除，此書籤僅適用本次對話；若要長期保存請改用 Claude Code CLI 或 VS Code 擴充功能）。」
 
 輸出格式限制
 嚴禁輸出任何視覺效果建議、圖表軸說明、或多餘的函數教學。輸出以下內容：
