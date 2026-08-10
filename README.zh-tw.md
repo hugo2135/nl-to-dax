@@ -35,6 +35,7 @@
 - Claude（支援 MCP connector 的介面，例如 Claude Code、Claude Apps）
 - 已連接 nl-to-dax 的 MCP connector（Settings → Connectors）
 - Git（僅供選用的 Skill 版本檢查功能使用；未安裝或無法連線時會靜默略過，不影響主要功能）
+- **若在 Claude Apps 中執行**：其 code execution 沙盒預設會擋未知網域的對外連線，需自行到 Settings → Capabilities → Network egress 把 `api.powerbi.com` 加入白名單，否則 Step 5 執行查詢時會收到類似 `Tunnel connection failed: 403 Forbidden` 的錯誤（這不影響 MCP connector 本身，只影響直接呼叫 Power BI REST API 的部分）
 
 ---
 
@@ -114,6 +115,8 @@ Skill 自動完成：MCP 認證檢查（`list_models`）→ 模型選擇與取�
 ## 篩選設定檔
 
 篩選規則用於在生成 DAX 時自動套用業務規則篩選條件，由管理員於申請程式的 `/admin/pbi-configs` 集中維護，透過 `get_model_detail` 這支 MCP 工具的 `filters` 欄位取得。新增或調整篩選規則請洽管理員，不需要修改 Skill 本身。
+
+若管理員為某個模型設定了多個**查詢模式**，Skill 會在取得完整結構前先詢問要用哪一個（`list_models` 回傳的 `query_modes` 欄位，選定後以 `mode_id` 帶入 `get_model_detail`）。若管理員設定了**欄位別名**，Skill 會在生成 DAX 前，把需求中的口語用詞（例如「北部」）轉換成實際的欄位值。
 
 ---
 

@@ -39,7 +39,7 @@ Step -1：認證檢查 (Auth Check)
 
 流程到此停止。
 
-若呼叫成功：回傳內容為 `list[dict]`，每筆至少包含 `pbi_config_id`、`pbi_config_name`、`model_version`、`model_description`（可能為 null）、`table_count`。直接進入「模型選擇流程」。
+若呼叫成功：回傳內容為 `list[dict]`，每筆至少包含 `pbi_config_id`、`pbi_config_name`、`model_version`、`model_description`（可能為 null）、`table_count`，可能包含 `query_modes`（陣列，管理員設定的「資料曝光範圍模式」，沒設定時是空陣列或缺席）。直接進入「模型選擇流程」。
 
 （可選）Skill 版本檢查：
 與認證機制無關，是否保留現有 `check_update.py`、或改用未來 plugin marketplace 自帶的版本機制，屬於獨立的開放問題（見 CLAUDE.md 開發計畫），不影響本節主流程。若保留，執行方式：
@@ -58,10 +58,14 @@ python "<SKILL_ROOT>\scripts\shared\check_update.py"
 2. 若只有一個模型 → 自動選定，告知使用者：「使用模型：{pbi_config_name}」
 3. 若有多個模型 → 列出所有模型名稱供使用者選擇，等待使用者指定後繼續
 4. 記住選定的 `pbi_config_id`，後續步驟皆使用此 ID
-5. 呼叫 MCP 工具 `get_model_detail(pbi_config_id)`，取得 `relationships`、`tables`、`workspace_id`、`dataset_id`、`filters`（Step 0.4 篩選規則）。**不論 `model_description` 有沒有值都要呼叫**——Step 0-5 都需要這裡的資料，只呼叫這一次、後續複用。
-   - 若使用者沒有該 `pbi_config_id` 的存取權，此工具會回傳 tool error，向使用者說明「無法取得此模型的存取權限，請聯繫管理員確認」，停止流程。
-6. 記住 `workspace_id`、`dataset_id`，Step 5 會用到。
-7. 執行「模型概覽展示流程」（見下方），再詢問使用者：「您想查詢什麼？」
+5. 檢查選定模型的 `query_modes`（若該欄位存在且非空陣列）：
+   - 只有一個 → 直接使用該 `mode_id`，簡短告知使用者：「查詢模式：{name}」，不需詢問
+   - 有多個 → 列出每個 `query_modes` 項目的 `name`/`description` 供使用者選擇，等待使用者指定後記住選定的 `mode_id`
+   - 沒有這個欄位或是空陣列 → 不設定 `mode_id`，照原本流程走
+6. 呼叫 MCP 工具 `get_model_detail(pbi_config_id, mode_id?)`（有選定 `mode_id` 才帶這個參數），取得 `relationships`、`tables`、`workspace_id`、`dataset_id`、`filters`（Step 0.4 篩選規則）、`column_aliases`（若有，Step 0.5 欄位別名規則）。**不論 `model_description` 有沒有值都要呼叫**——Step 0-5 都需要這裡的資料，只呼叫這一次、後續複用。
+   - 若使用者沒有該 `pbi_config_id` 的存取權，或帶了不存在的 `mode_id`，此工具會回傳 tool error，向使用者說明「無法取得此模型的存取權限，請聯繫管理員確認」，停止流程。
+7. 記住 `workspace_id`、`dataset_id`，Step 5 會用到。
+8. 執行「模型概覽展示流程」（見下方），再詢問使用者：「您想查詢什麼？」
 
 模型概覽展示流程：
 使用上一步 `get_model_detail` 已取得的資料，檢查該模型的 `model_description` 欄位是否有值（申請程式管理員可預先為模型撰寫整體說明）。
@@ -145,7 +149,7 @@ JSON
 }
 
 Step 0.4：載入並比對篩選設定檔 (Load & Match Filter Profiles)
-使用「模型選擇流程」呼叫 `get_model_detail` 時已取得的 `filters` 欄位（陣列，管理員於申請程式 `/admin/pbi-configs` 集中維護，不再讀本機檔案）。每筆設定的結構如下：
+使用「模型選擇流程」呼叫 `get_model_detail` 時已取得的 `filters` 欄位（陣列，管理員於申請程式 `/admin/pbi-configs` 集中維護，不再讀本機檔案）。若「模型選擇流程」有帶 `mode_id`，`filters` 陣列裡會多一筆 `filterId` 為 `mode:<mode_id>` 的 `alwaysApply` 設定檔——這是該模式自己的篩選規則，照下方同一套比對邏輯處理即可，不用特別區分。每筆設定的結構如下：
 
 JSON
 {
@@ -177,6 +181,20 @@ JSON
      則將命中設定檔的 filters 追加至預設篩選集之後。
 
 4. 最終篩選集將在 Step 4 生成 DAX 時套用。若最終篩選集為空（例如排查模式），則與使用者確認篩選條件。
+
+Step 0.5：套用欄位別名對照 (Apply Column Aliases)
+使用「模型選擇流程」呼叫 `get_model_detail` 時已取得的 `column_aliases` 欄位（陣列，若不存在或為空陣列則跳過此步驟，不影響其餘流程）。每筆結構如下：
+
+JSON
+{
+  "table": "Table_Name",
+  "column": "Column_Name",
+  "values": [
+    { "value": "實際欄位值", "aliases": ["口語別名1", "口語別名2"] }
+  ]
+}
+
+掃描使用者的需求文字，若提到某個 `aliases` 裡的詞，在後續 Step 2-4 判斷篩選條件時，把該詞當成對應的 `value` 寫進 DAX（例如使用者說「北部」、`aliases` 對應到 `value: "North"`，DAX 篩選條件要寫 `Table[Column] = "North"`，不是 `"北部"`）。沒有比對到任何別名時，正常使用使用者的原始用詞即可。此步驟只影響「使用者用詞 → 篩選值」的轉換，不影響 Step 0.4 的篩選集比對邏輯，兩者並行套用。
 
 Step 1：識別所需資料表
 仔細閱讀使用者的自然語言需求。
@@ -234,7 +252,7 @@ Server 只提供 `get_powerbi_token` 換發 token，DAX 查詢由 Skill 自己�
 5.2 執行查詢
 使用 Write 工具，將 Step 4 產生的完整 DAX 查詢語法（不含程式碼區塊標記）寫入使用者目前工作目錄下的 `pbi_query/dax_query.txt`（使用絕對路徑）。
 
-執行以下指令（`<SKILL_ROOT>` 替換為實際路徑，`workspace_id`/`dataset_id` 來自「模型選擇流程」步驟 5 的 `get_model_detail` 回傳）：
+執行以下指令（`<SKILL_ROOT>` 替換為實際路徑，`workspace_id`/`dataset_id` 來自「模型選擇流程」步驟 6 呼叫 `get_model_detail` 的回傳）：
 
 macOS / Linux：
 python3 "<SKILL_ROOT>/scripts/shared/execute_dax_query.py" "<access_token>" "<workspace_id>" "<dataset_id>" "<dax_query.txt 的絕對路徑>" "<pbi_query/query_result.csv 的絕對路徑>"
@@ -244,7 +262,7 @@ python "<SKILL_ROOT>\scripts\shared\execute_dax_query.py" "<access_token>" "<wor
 
 回傳 JSON 格式：{"success": true, "row_count": N, "csv_path": "..."}
 
-若執行失敗：將 stderr 的錯誤訊息回報給使用者（此腳本執行在使用者自己的環境中，不像 Step -1 的 MCP tool error 可能包含伺服器端基礎設施細節，可以完整呈現），停止流程。
+若執行失敗：將 stderr 的錯誤訊息回報給使用者（此腳本執行在使用者自己的環境中，不像 Step -1 的 MCP tool error 可能包含伺服器端基礎設施細節，可以完整呈現），停止流程。若錯誤訊息類似 `Tunnel connection failed: 403 Forbidden` 或其他連線被擋的訊息，很可能是 Claude 執行環境的網路白名單沒有放行 `api.powerbi.com`（常見於 Claude Apps 的 code execution 沙盒），提醒使用者依 README 安裝教學到 Settings → Capabilities → Network egress 加入白名單。
 
 5.3 回報結果
 若執行成功，向使用者回報：

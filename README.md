@@ -35,6 +35,7 @@ The following describes **this branch (`mcp-oauth`)**'s installation and usage. 
 - Claude, in any MCP-connector-capable interface (e.g., Claude Code, Claude Apps)
 - The nl-to-dax MCP connector added under Settings → Connectors
 - Git (optional; used only for the skill's version-check feature, unrelated to authentication; silently skipped if unavailable or offline)
+- **If running in Claude Apps**: its code execution sandbox blocks outbound connections to unknown domains by default. Go to Settings → Capabilities → Network egress and allow `api.powerbi.com` — otherwise Step 5's query execution fails with an error like `Tunnel connection failed: 403 Forbidden` (this doesn't affect the MCP connector itself, only the direct Power BI REST API call).
 
 ---
 
@@ -114,6 +115,8 @@ The skill automatically runs: MCP auth check (`list_models`) → model selection
 ## Filter rules
 
 Filter rules automatically apply business-rule filters when generating DAX. They're centrally maintained by admins at `/admin/pbi-configs` on the credential application server, and retrieved through the `filters` field of the `get_model_detail` MCP tool. To add or adjust filter rules, contact an admin — no modification to the skill itself is needed.
+
+If an admin has configured multiple **query modes** for a model, the skill asks which one to use before fetching its structure (via `list_models`' `query_modes` field, passed as `mode_id` to `get_model_detail`). If an admin has configured **column aliases**, the skill translates colloquial terms in your request (e.g. "the north region") into the actual underlying column value before generating DAX.
 
 ---
 
