@@ -171,6 +171,41 @@ def apply_update(source_skill_dir: str, updates: list, removals: list, backup_di
         raise
 
 
+def locate_skill_dir(clone_dir: str, subdir) -> str:
+    """找出 clone 下來的倉庫裡，哪一層對應部署後的 SKILL_ROOT（也就是 SKILL.md 所在層）。
+
+    倉庫可能是兩種佈局：
+      A. 巢狀——倉庫根目錄還有 README/CLAUDE.md 等，skill 放在某個子目錄底下
+      B. 扁平——倉庫本身就是 skill，根目錄直接是 SKILL.md/scripts/
+
+    `skill_subdirectory` 沒設定時自動判斷（先看根目錄，再看常見的子目錄名），
+    設定了就完全照設定值——包含刻意填空字串代表「就是根目錄」。
+    自動判斷是為了避免佈局 B 的使用者因為漏填而拿到看不懂的錯誤。
+    """
+    if subdir is not None:
+        candidate = os.path.join(clone_dir, subdir) if subdir else clone_dir
+        if not os.path.isfile(os.path.join(candidate, "SKILL.md")):
+            location = f"{subdir}/" if subdir else "根目錄"
+            raise RuntimeError(
+                f"來源倉庫的{location}底下找不到 SKILL.md，"
+                "請確認 update_source.json 的 skill_subdirectory 設定正確"
+                "（倉庫本身就是 skill 時請填空字串 \"\"）"
+            )
+        return candidate
+
+    if os.path.isfile(os.path.join(clone_dir, "SKILL.md")):
+        return clone_dir
+    for name in sorted(os.listdir(clone_dir)):
+        path = os.path.join(clone_dir, name)
+        if name != ".git" and os.path.isdir(path) and os.path.isfile(os.path.join(path, "SKILL.md")):
+            print(f"自動偵測到 skill 位於倉庫的 {name}/ 底下", file=sys.stderr)
+            return path
+    raise RuntimeError(
+        "來源倉庫中找不到 SKILL.md（根目錄與第一層子目錄都沒有）。"
+        "請確認 repo_url 指向正確的倉庫，或用 skill_subdirectory 明確指定位置"
+    )
+
+
 def _prune_empty_dirs() -> None:
     """清掉 scripts/ 底下更新後變空的目錄（例如舊版的 windows/macos/linux、__pycache__）。
 
@@ -197,7 +232,7 @@ def main() -> None:
             "尚未設定更新來源。請複製 config/update_source.json.example 為 "
             "config/update_source.json 並填入 repo_url"
         )
-    subdir = source.get('skill_subdirectory', 'nl-to-dax')
+    subdir = source.get('skill_subdirectory')
 
     target = sys.argv[1] if len(sys.argv) > 1 else None
     if not target:
@@ -212,12 +247,7 @@ def main() -> None:
         backup_dir = os.path.join(tmp, "backup")
         clone_version(repo_url, target, clone_dir)
 
-        source_skill_dir = os.path.join(clone_dir, subdir) if subdir else clone_dir
-        if not os.path.isfile(os.path.join(source_skill_dir, "SKILL.md")):
-            raise RuntimeError(
-                f"來源倉庫的 {subdir}/ 底下找不到 SKILL.md，"
-                "請確認 update_source.json 的 skill_subdirectory 設定正確"
-            )
+        source_skill_dir = locate_skill_dir(clone_dir, subdir)
 
         updates = _collect_updates(source_skill_dir)
         if not updates:

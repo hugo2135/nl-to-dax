@@ -47,6 +47,8 @@
 2. 複製 `nl-to-dax/config/site_domain.json.example` 為 `nl-to-dax/config/site_domain.json`，將 `site_domain` 欄位填入申請程式（PBI Credential Server）的實際網域（例如 `nl-to-dax.example.com`，不含 `https://` 前綴）
 3. *（選用，啟用自動更新）* 複製 `nl-to-dax/config/update_source.json.example` 為 `nl-to-dax/config/update_source.json`，填入 `repo_url`——也就是這份 skill 的發佈倉庫（SSH 或 HTTPS 皆可，看你本機 git 憑證怎麼設定）。沒設定的話，版本檢查與自動更新都會靜默略過。
 
+   更新程式會自動判斷 skill 在倉庫裡的位置：倉庫本身就是 skill（根目錄直接是 `SKILL.md`）或放在任意名稱的子目錄底下都能認得。只有要覆蓋這個判斷時才需要加 `"skill_subdirectory"`——倉庫本身就是 skill 時填空字串 `""`，否則填實際的資料夾名稱。
+
 ---
 
 ## 初次設定

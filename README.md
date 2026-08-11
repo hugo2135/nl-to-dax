@@ -51,6 +51,8 @@ The following describes **this branch (`mcp-oauth`)**'s installation and usage. 
 2. Copy `nl-to-dax/config/site_domain.json.example` to `nl-to-dax/config/site_domain.json`, and fill in the `site_domain` field with the credential application server's actual domain (e.g. `nl-to-dax.example.com`, no `https://` prefix)
 3. *(Optional, enables self-update)* Copy `nl-to-dax/config/update_source.json.example` to `nl-to-dax/config/update_source.json` and fill in `repo_url` — the repository this skill is distributed from (SSH or HTTPS, whichever your local git credentials are set up for). Without it, version checking and self-update are silently skipped.
 
+   The updater locates the skill inside the repository automatically, whether the repo *is* the skill (`SKILL.md` at its root) or nests it in a subdirectory of any name. Add `"skill_subdirectory"` only to override that — `""` for a repo that is the skill, or an explicit folder name.
+
 ---
 
 ## First-time setup
