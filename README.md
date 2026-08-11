@@ -89,7 +89,8 @@ nl-to-dax/
 │   ├── SKILL.md                        # Skill 執行指令（Claude 讀取）
 │   ├── VERSION                         # 目前版號（major.build，例如 0.1）
 │   ├── config/
-│   │   └── default_credential_server_url.txt   # 本倉庫預設服務網址（settings.local.json 首次建立時帶入）
+│   │   ├── default_credential_server_url.txt   # 本倉庫預設服務網址（settings.local.json 首次建立時帶入）
+│   │   └── update_source.json.example          # 版本檢查的來源倉庫，複製為 update_source.json 並填入 repo_url
 │   ├── filters/                        # DAX 篩選設定檔
 │   │   ├── default_order.json          # 預設訂單篩選（常態啟用）
 │   │   ├── investigation.json          # 排查模式（覆蓋預設篩選）
@@ -188,6 +189,10 @@ Skill 自動完成：環境初始化（Python 檢查）→ 版本檢查 → 模�
 ## 版本更新
 
 每次執行時，Skill 每日最多向遠端倉庫查詢一次最新版號（比對 git tag），若偵測到有更新版本會簡短提醒一次，不會中斷查詢流程。要更新到最新版本，請重新取得本倉庫最新內容並覆蓋部署路徑。
+
+需要在 `<SKILL_ROOT>/config/update_source.json` 填好來源倉庫才會啟用（複製 `update_source.json.example` 並填入 `repo_url`，SSH／HTTPS 皆可，走本機既有的 git 憑證）。沒設定的話整個檢查會靜默略過，不影響其他功能。
+
+三條分支共用同一個倉庫、也就共用同一個 tag 命名空間，因此 tag 一律帶分支前綴（`server-token/v0.2`），本分支只認 `server-token/` 開頭的 tag——不會把 `mcp-oauth` 的版本誤判成自己的更新。
 
 ---
 
