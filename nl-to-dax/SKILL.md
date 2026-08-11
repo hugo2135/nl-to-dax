@@ -295,14 +295,19 @@ Server 只提供 `get_powerbi_token` 換發 token，DAX 查詢由 Skill 自己�
 
 若 `get_powerbi_token` 失敗 ：向使用者說明「Access Token 取得失敗，請聯繫管理員處理」，停止流程。不要逐字暴露 tool error 的原始錯誤內容給一般使用者（可能包含基礎設施細節），僅在使用者主動要求查看技術細節時才提供。
 
-**此 access token 只能存在於本次對話的上下文中，絕對不可以寫入任何本機檔案跨對話持久化。**
+**此 access token 只能存在於本次對話的上下文中，絕對不可以寫入任何本機檔案跨對話持久化。**（5.2 會短暫寫入一個 token 檔給腳本讀取，但那個檔案由腳本讀取後立即刪除，不構成跨對話保留。）
 
 5.2 執行查詢
-使用 Write 工具，將 Step 4 產生的完整 DAX 查詢語法（不含程式碼區塊標記）寫入使用者目前工作目錄下的 `pbi_query/dax_query.txt`（使用絕對路徑）。
+使用 Write 工具寫入兩個檔案（皆使用絕對路徑，位於使用者目前工作目錄下）：
+
+1. `pbi_query/dax_query.txt`——Step 4 產生的完整 DAX 查詢語法（不含程式碼區塊標記）
+2. `pbi_query/.access_token`——5.1 取得的 access token 純文字內容（不含引號、不含 `Bearer ` 前綴、不加任何換行以外的修飾）
+
+**access token 一律透過這個檔案傳遞，絕對不要當作命令列參數傳入。** 原因有二：命令列內容同機的其他行程可以讀取（Windows 的 `wmic process get commandline`、工作管理員的命令列欄位；Linux 的 `/proc/<pid>/cmdline`），而且可能被寫進 shell 歷史檔；此外呼叫端 UI 會完整顯示待執行指令，近 2000 字元的 JWT 會把使用者的版面灌爆。`execute_dax_query.py` 讀取後會立即刪除該檔案（即使查詢失敗也一定刪除）。
 
 執行以下指令（`<SKILL_ROOT>` 替換為實際路徑，`workspace_id`/`dataset_id` 來自「模型選擇流程」步驟 6 呼叫 `get_model_detail` 的回傳）：
 
-python "<SKILL_ROOT>/scripts/shared/execute_dax_query.py" "<access_token>" "<workspace_id>" "<dataset_id>" "<dax_query.txt 的絕對路徑>" "<pbi_query/query_result.csv 的絕對路徑>"
+python "<SKILL_ROOT>/scripts/shared/execute_dax_query.py" "<pbi_query/.access_token 的絕對路徑>" "<workspace_id>" "<dataset_id>" "<dax_query.txt 的絕對路徑>" "<pbi_query/query_result.csv 的絕對路徑>"
 
 回傳 JSON 格式：{"success": true, "row_count": N, "csv_path": "..."}
 

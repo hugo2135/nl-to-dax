@@ -1,10 +1,15 @@
 """
 Power BI REST API 執行端
 
-用法: python execute_dax_query.py <access_token> <workspace_id> <dataset_id> <dax_query_file> [output_csv_path]
+用法: python execute_dax_query.py <token_file> <workspace_id> <dataset_id> <dax_query_file> [output_csv_path]
 
-access_token 由呼叫端（Claude）透過 MCP 工具 get_powerbi_token 取得後傳入，
-本腳本不快取、不落地儲存任何 token，執行完即結束。
+access_token 透過**檔案**傳入，不走命令列參數。原因：
+- 命令列內容同機其他行程可讀（Windows `wmic process get commandline`、工作管理員的
+  命令列欄位；Linux `/proc/<pid>/cmdline`），且可能被寫進 shell 歷史檔
+- 呼叫端 UI 會完整顯示待執行的指令，近 2000 字元的 JWT 會把版面灌爆
+
+token 檔由呼叫端（Claude）用 MCP 工具 `get_powerbi_token` 取得後寫入，
+本腳本**讀取後立即刪除**（即使後續查詢失敗也一定刪除），不快取、不跨對話保留。
 
 stdout: JSON 摘要  {"success": true, "row_count": N, "csv_path": "..."}
 stderr: 執行進度與錯誤訊息
@@ -70,21 +75,46 @@ def result_to_csv(result: dict) -> tuple[str, int]:
     return output.getvalue(), len(rows)
 
 
+def _consume_token_file(token_file: str) -> str:
+    """讀出 token 後立即刪除該檔案。
+
+    用 try/finally 確保「讀取失敗」與「檔案內容為空」等情況下也會刪除，
+    不讓 token 因為任何錯誤路徑而殘留在磁碟上。
+    """
+    try:
+        with open(token_file, 'r', encoding='utf-8') as f:
+            token = f.read().strip()
+    except FileNotFoundError:
+        raise RuntimeError(f"找不到 token 檔案：{token_file}")
+    finally:
+        try:
+            os.remove(token_file)
+        except OSError:
+            pass
+
+    if not token:
+        raise RuntimeError(f"token 檔案內容為空：{token_file}")
+    return token
+
+
 def main():
     if len(sys.argv) < 5:
         print(
-            "用法: python execute_dax_query.py <access_token> <workspace_id> <dataset_id> <dax_query_file> [output_csv_path]",
+            "用法: python execute_dax_query.py <token_file> <workspace_id> <dataset_id> <dax_query_file> [output_csv_path]",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    access_token = sys.argv[1]
+    token_file = sys.argv[1]
     workspace_id = sys.argv[2]
     dataset_id = sys.argv[3]
     dax_file = sys.argv[4]
     csv_path = sys.argv[5] if len(sys.argv) > 5 else os.path.join("pbi_query", "query_result.csv")
 
     try:
+        # 最先執行：不論後續成功與否，token 檔都已經被刪除。
+        access_token = _consume_token_file(token_file)
+
         with open(dax_file, 'r', encoding='utf-8') as f:
             dax_query = f.read().strip()
         if not dax_query:
@@ -92,6 +122,7 @@ def main():
 
         print("執行 DAX 查詢...", file=sys.stderr)
         result = execute_dax(access_token, workspace_id, dataset_id, dax_query)
+        del access_token
 
         csv_content, row_count = result_to_csv(result)
 

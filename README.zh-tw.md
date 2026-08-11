@@ -151,6 +151,7 @@ Skill 每日最多向遠端倉庫查詢一次最新版號（比對 git tag），
 
 ## 注意事項
 
-- Skill 不持有 Azure AD 密鑰等底層憑證；查詢用的 Access Token 由 `get_powerbi_token` 取得後僅存在單次對話的上下文中，絕不寫入本機檔案跨對話持久化
+- Skill 不持有 Azure AD 密鑰等底層憑證；查詢用的 Access Token 由 `get_powerbi_token` 取得後僅存在單次對話的上下文中，絕不跨對話持久化
+- Token 是透過一個「腳本讀取後立即刪除」的檔案交給查詢腳本（即使查詢失敗也保證刪除），不走命令列參數——命令列內容同機其他行程可讀（Windows `wmic process get commandline`、Linux `/proc/<pid>/cmdline`），也可能被寫進 shell 歷史檔。這是多一層防護而非根治：token 仍會經過對話上下文，要完全避免需由 Server 端改發一次性 ticket
 - 語意模型與查詢結果皆為即時取得，管理員異動使用者的已分配模型時不會有本機快取過期的問題
 - Server 端不執行查詢，只換發 Access Token；DAX 查詢由 Skill 用 `execute_dax_query.py` 直接對 Power BI REST API 發送請求，避免多使用者併發查詢卡住 Server

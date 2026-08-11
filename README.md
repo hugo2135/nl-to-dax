@@ -151,6 +151,7 @@ The skill queries the remote repository for the latest version tag at most once 
 
 ## Notes
 
-- The skill holds no underlying credentials such as Azure AD secrets; the access token obtained via `get_powerbi_token` exists only within the context of a single conversation, and is never written to a local file or persisted across conversations
+- The skill holds no underlying credentials such as Azure AD secrets; the access token obtained via `get_powerbi_token` lives only in the current conversation and is never persisted across conversations
+- The token is handed to the query script through a file that the script deletes the moment it reads it (guaranteed even when the query fails), never as a command-line argument — command lines are readable by other processes on the same machine (`wmic process get commandline` on Windows, `/proc/<pid>/cmdline` on Linux) and can end up in shell history. Note this is defense in depth, not a complete fix: the token still passes through the conversation context, which only a server-side one-time-ticket scheme could avoid
 - Semantic models and query results are both fetched in real time; there's no local-cache staleness issue when admins change a user's assigned models
 - The Server does not execute queries — it only issues access tokens; DAX queries are sent directly to the Power BI REST API by the skill via `execute_dax_query.py`, so concurrent queries from multiple users can't block the Server

@@ -7,9 +7,10 @@
   - `solo`：自用模式，直接在 skill 內填 Azure AD `TENANT_ID`/`CLIENT_ID`/`CLIENT_SECRET`，不經過 Server；語意模型結構改用自製的 chunk_model + 說明產生 skill 取得，不依賴 `fetch_model.py`
   - `server-token`：集團模式現行方案，經 Server 註冊、核發 `PBI_MASK_KEY` 換 Access Token（過渡用，預期未來被 `mcp-oauth` 取代並合併回來）
   - `mcp-oauth`：集團模式下一代方案，改用 MCP connector + OAuth 認證，skill 完全不接觸任何憑證（開發完成並驗證後，預期合併回來取代 `server-token`）
-- **Step 0～4**（識別資料表、驗證關聯、抽欄位量值、生成 DAX）與 `filters/` 篩選邏輯是三條分支共用的核心推理層，跟認證方式無關：
+- **Step 0～4**（識別資料表、驗證關聯、抽欄位量值、生成 DAX）與篩選比對邏輯（Step 0.4）是三條分支共用的核心推理層，跟認證方式無關：
   - 這幾個 Step 的修改**一律先在 `solo` 分支進行**，驗證後再 merge/rebase 到 `server-token`、`mcp-oauth`
   - 嚴禁直接在 `server-token` 或 `mcp-oauth` 上修改這幾個 Step，避免三條分支各自分岔、日後難以合併
+  - **例外**：Step 0.4 的篩選規則「比對演算法」（收集預設篩選、比對 contextKeywords、決定最終篩選集）三分支共用；但「資料來源」是各分支專屬——`solo`/`server-token` 讀本機 `filters/*.json`，`mcp-oauth` 改讀 `get_model_detail` 回傳的 `filters` 欄位（管理員於申請程式 `/admin/pbi-configs` 集中維護）。`mcp-oauth` 已移除本機 `filters/` 資料夾。
 - **Step -1**（環境檢查與認證取得）、**Step 5**（執行查詢的認證串接）是各分支專屬邏輯，不受上述共用限制，各自獨立維護
 
 ### Commit 訊息格式（Conventional Commits）
@@ -87,6 +88,13 @@ git push origin v0.2
 - **執行前警告 Token 過期**（比對 `expires_at`），過期時印 stderr 警告後仍嘗試執行；若 Power BI 回 401 則提示重新執行 `fetch_credential.py`
 - **輸出 CSV 前先確保目錄存在**（`os.makedirs(..., exist_ok=True)`），避免路徑不存在導致靜默失敗
 
+### 敏感值傳遞規則
+- **絕對不要把 access token 之類的機密當作命令列參數傳給腳本**，一律透過「腳本讀取後立即刪除」的暫存檔傳遞：
+  - 命令列內容同機的其他行程可以讀取（Windows `wmic process get commandline`／工作管理員的命令列欄位；Linux `/proc/<pid>/cmdline`），也可能被寫進 shell 歷史檔
+  - 呼叫端 UI 會完整顯示待執行指令，近 2000 字元的 JWT 會把使用者版面灌爆
+  - 刪除必須放在 `try/finally`，確保任何錯誤路徑（查詢失敗、DAX 檔不存在、token 檔為空）都不會讓機密殘留在磁碟上
+- 這只是縱深防禦，不是根治：token 仍會經過 Claude 的對話上下文。要讓 raw token 完全不進上下文，需 Server 端改發一次性、短效期的 ticket，由腳本自行兌換
+
 ### 跨平台相容性
 - **不使用 shell wrapper**：所有腳本一律由 Claude 直接以 `python`（Windows）／`python3`（macOS/Linux）呼叫，全部放在 `scripts/shared/`，不再維護 `scripts/windows|macos|linux/` 的 `.ps1`/`.sh` 觸發腳本。
   - 原因一：Windows 用戶端版的 PowerShell ExecutionPolicy 預設是 `Restricted`，會直接擋掉未簽署的 `.ps1`（實測確認），等於 wrapper 自己製造了一個直接呼叫 Python 不會有的失敗點。
@@ -102,6 +110,23 @@ git push origin v0.2
 
 > 完成的項目直接刪除。版本里程碑記錄請見 `.history`。
 > 申請程式的開發計畫另立獨立專案追蹤。
+
+### mcp-oauth 分支開放問題
+
+> 此分支已完成 SKILL.md 骨架重構，本機憑證管理腳本（`check_setup.py`、`fetch_credential.py`、`fetch_model.py`、`pbi_api_client.py`、`model_overview.py`、`skill_settings.py`）與對應 trigger 腳本已移除。後端已提供正式的 MCP 工具定義（`list_models`、`get_model_detail`、`get_powerbi_token`，見下方架構說明），SKILL.md 已依此更新，不再是暫定介面。
+
+**架構確認（跟最初假設不同，記錄避免之後又搞錯）**：Server 端**不提供執行查詢的 MCP 工具**。`get_powerbi_token(pbi_config_id)` 只回傳 access token，DAX 查詢是 Skill 自己拿這個 token 直接對 Power BI 的 `executeQueries` REST API 發送請求（新增 `scripts/shared/execute_dax_query.py` 處理），不經過 nl-to-dax 的 Server——這是刻意設計，避免多使用者併發查詢時卡住 Server 的同步呼叫。Access token 只能存在於單次對話的上下文中快取（Skill 自己在推理層面記住，同一個 `pbi_config_id` 未過期就複用，不用每次查詢都重新呼叫 `get_powerbi_token`），絕對不可寫入本機檔案跨對話持久化。
+
+已解決：
+- ~~`list_models` 回傳範圍~~：確認為輕量清單（`pbi_config_id`/`pbi_config_name`/`model_version`/`model_description`/`table_count`），完整 `relationships`/`tables`/`workspace_id`/`dataset_id` 由獨立的 `get_model_detail(pbi_config_id)` 取得。
+- ~~`server-token` 分支要不要保留當 fallback~~：後端已明確表示新舊 skill 一律統一改用 MCP，**不維護兩條並行路徑**，`server-token` 分支維持原規劃（過渡用，之後合併回來取代）。
+
+仍待確認：
+- **查詢結果是否落地成本機 CSV 檔**：SKILL.md 目前預設維持落地（`pbi_query/query_result.csv`，由 Claude 用 Write 工具寫入），因為在 Claude Code 下寫檔案對使用者有意義；若之後主要在 Claude Apps sandbox 環境使用，寫了也是對話結束就消失，落不落地差異不大，需要重新評估。
+- **`check_update.py`（Skill 版本檢查）去留**：維持現有比對 git tag 的機制，還是之後打包成 plugin 後改用 marketplace 自帶的版本機制？跟認證機制無關。
+- **Server 端書籤儲存 API**：查詢書籤（`bookmarks.py`）目前一律存本機 `<SKILL_ROOT>/config/bookmarks.json`，在 Claude Code 下可跨對話保存，但 Claude Apps 的沙盒每次對話清空，書籤只在當次對話有效（Skill 會偵測環境並告知使用者）。要在 Claude Apps 上真正可用，需要 Server 端提供書籤儲存的 MCP 工具（例如 `list_bookmarks`/`save_bookmark`/`delete_bookmark`），已向後端提出前先維持本機版本。書籤內容只有 DAX 與需求文字、不含憑證，落地不違反本分支的安全設計。
+- **`query_modes`/`column_aliases` 實際驗證**：SKILL.md 已依整合指南寫入這兩個欄位的處理邏輯（純增量，欄位缺席時自動略過），但 2026-08-10 實測目前部署的 MCP server 尚未回傳這兩個欄位，待 Server 部署後需實際驗證一次。
+- ~~實際串接測試~~：已於 2026-08-10 用真實 MCP connector 實測 `list_models`/`get_model_detail`/`get_powerbi_token`，回傳格式與 SKILL.md 描述一致。
 
 ### 與申請程式的 API 合約
 
