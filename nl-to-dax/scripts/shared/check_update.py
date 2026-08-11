@@ -7,6 +7,17 @@ import sys
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
 
+# 這份程式碼屬於哪條分支線。三條分支（solo／server-token／mcp-oauth）認證架構完全不同，
+# 但共用同一個 git 倉庫，也就共用同一個 tag 命名空間——`git ls-remote --tags` 會把
+# 所有分支的 tag 全部撈回來。若不區分，solo 的部署會看到 mcp-oauth 的 tag 並誤判成
+# 「自己有新版」，甚至被導去更新成另一套完全不相容的程式碼。
+#
+# 因此 tag 一律帶分支前綴（例如 `mcp-oauth/v1.1`），此處只認自己這條線的。
+# 刻意寫死不放進設定檔：這是「程式碼屬於哪條線」的事實，不是使用者可以決定的部署選項，
+# 填錯的後果是被導去更新成別條分支的程式碼。
+TAG_CHANNEL = "mcp-oauth"
+
+
 def load_update_source(skill_root: str) -> dict:
     """讀取 config/update_source.json（來源倉庫設定）。
 
@@ -22,6 +33,12 @@ def load_update_source(skill_root: str) -> dict:
         return {}
     with open(path, 'r', encoding='utf-8') as f:
         return json.load(f)
+
+
+def strip_channel(tag: str) -> str:
+    """`mcp-oauth/v1.1` → `v1.1`。給人看與版號比對用；clone 時仍要用完整 tag。"""
+    prefix = f"{TAG_CHANNEL}/"
+    return tag[len(prefix):] if tag and tag.startswith(prefix) else tag
 
 
 def _parse_version(version_str: str):
@@ -46,7 +63,11 @@ def _read_current_version(skill_root: str) -> str:
 
 
 def _fetch_latest_remote_tag(repo_url: str) -> str:
-    """借用本機已設定好的 git 憑證查詢遠端 tags，不需要 GitHub API/token。"""
+    """借用本機已設定好的 git 憑證查詢遠端 tags，不需要 GitHub API/token。
+
+    只認 `<TAG_CHANNEL>/vX.Y` 形式的 tag，其餘（含其他分支的、以及沒有前綴的舊 tag）
+    一律忽略。本條線還沒發過任何版本時回傳 None，呼叫端會靜默略過。
+    """
     result = subprocess.run(
         ["git", "ls-remote", "--tags", repo_url],
         capture_output=True, text=True, timeout=10,
@@ -54,6 +75,7 @@ def _fetch_latest_remote_tag(repo_url: str) -> str:
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "git ls-remote 執行失敗")
 
+    prefix = f"{TAG_CHANNEL}/"
     versions = []
     for line in result.stdout.splitlines():
         if "refs/tags/" not in line:
@@ -61,7 +83,9 @@ def _fetch_latest_remote_tag(repo_url: str) -> str:
         tag = line.split("refs/tags/", 1)[1]
         if tag.endswith("^{}"):
             tag = tag[:-3]
-        parsed = _parse_version(tag)
+        if not tag.startswith(prefix):
+            continue
+        parsed = _parse_version(tag[len(prefix):])
         if parsed:
             versions.append((parsed, tag))
 
@@ -102,12 +126,15 @@ def check_update(skill_root: str) -> dict:
             "checked":          False,
         }
 
+    latest_tag = None
     latest_version = None
     checked = False
     update_available = False
     try:
-        latest_version = _fetch_latest_remote_tag(repo_url)
-        checked = latest_version is not None
+        latest_tag = _fetch_latest_remote_tag(repo_url)
+        checked = latest_tag is not None
+        # 對外顯示與比對都用去掉 channel 前綴的版號；完整 tag 只有 clone 時才需要
+        latest_version = strip_channel(latest_tag) if latest_tag else None
         if checked and current_version:
             latest_parsed = _parse_version(latest_version)
             current_parsed = _parse_version(current_version)

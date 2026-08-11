@@ -235,10 +235,19 @@ def main() -> None:
     subdir = source.get('skill_subdirectory')
 
     target = sys.argv[1] if len(sys.argv) > 1 else None
-    if not target:
+    if target:
+        # 允許只輸入 v1.1，內部補上 channel 前綴——tag 實際命名為 <channel>/vX.Y，
+        # 因為三條分支共用同一個 git 倉庫、也就共用 tag 命名空間
+        prefix = f"{check_update.TAG_CHANNEL}/"
+        if not target.startswith(prefix):
+            target = prefix + target
+    else:
         target = check_update._fetch_latest_remote_tag(repo_url)
         if not target:
-            raise RuntimeError("遠端倉庫沒有任何符合版號格式的 tag，無法判斷要更新到哪一版")
+            raise RuntimeError(
+                f"遠端倉庫沒有任何 {check_update.TAG_CHANNEL}/vX.Y 形式的 tag，"
+                "無法判斷要更新到哪一版"
+            )
 
     before = check_update._read_current_version(SKILL_ROOT)
 

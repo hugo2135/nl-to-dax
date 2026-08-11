@@ -150,7 +150,7 @@ Skill 自動完成：MCP 認證檢查（`list_models`）→ 模型選擇與取�
 
 ## 版本更新
 
-Skill 每日最多向遠端倉庫查詢一次最新版號（比對 git tag）。偵測到新版本時會告知並**詢問是否要更新**——不會自作主張直接更新，因為那等於在 skill 執行到一半改寫它自己的檔案。
+Skill 每日最多向遠端倉庫查詢一次最新版號（比對 git tag）。三條分支共用同一個倉庫、也就共用同一個 tag 命名空間，因此 tag 一律帶分支前綴（`mcp-oauth/v1.1`），每條分支只認自己那條線的——`solo` 的安裝不會被告知 `mcp-oauth` 的版本是它的更新。偵測到新版本時會告知並**詢問是否要更新**——不會自作主張直接更新，因為那等於在 skill 執行到一半改寫它自己的檔案。
 
 同意後會執行 `update_skill.py`：淺層 clone 目標 tag，只覆蓋程式碼（`SKILL.md`、`VERSION`、`scripts/`、以及 `config/*.example`）。`scripts/` 與 `filters/` 採完整鏡像——上游刪掉的檔案本機也會刪掉，避免歷次改版的殘骸一直累積。**你自己的檔案一律不動**：`site_domain.json`、`update_source.json`、`bookmarks.json`，實際上 `config/` 底下任何非 `.example` 的 `.json` 都受保護。覆蓋或刪除前都會先備份，過程中任一步失敗就整批還原，不會讓 skill 停在「更新到一半」的壞掉狀態。
 

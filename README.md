@@ -154,7 +154,7 @@ The second option exists because saved DAX is frozen: if it was generated with a
 
 ## Updates
 
-The skill checks the remote repository for a newer version tag at most once a day. When one is found it tells you and offers to update — it never updates on its own, since that would rewrite the skill's own files mid-run.
+The skill checks the remote repository for a newer version tag at most once a day. All three branches share one repository and therefore one tag namespace, so tags are branch-prefixed (`mcp-oauth/v1.1`) and each branch only ever considers its own — a `solo` install can never be told that an `mcp-oauth` release is an update for it. When one is found it tells you and offers to update — it never updates on its own, since that would rewrite the skill's own files mid-run.
 
 Accepting runs `update_skill.py`, which shallow-clones the target tag and overwrites only code (`SKILL.md`, `VERSION`, `scripts/`, and `config/*.example`). `scripts/` and `filters/` are mirrored exactly — files deleted upstream are deleted locally too, so old versions' leftovers don't accumulate. **Your own files are never touched**: `site_domain.json`, `update_source.json`, `bookmarks.json`, and in fact any non-`.example` `.json` under `config/`. Everything is backed up before being overwritten or removed and restored automatically if anything fails, so a failed update can't leave the skill half-broken.
 
