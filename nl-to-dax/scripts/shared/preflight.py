@@ -32,7 +32,7 @@ MIN_VERSION = (3, 9)
 
 # 此分支各腳本實際 import 的標準函式庫模組。
 REQUIRED_MODULES = [
-    'json', 'os', 'sys', 'csv', 'io',
+    'json', 'os', 'sys', 'csv', 'io', 'shutil', 'tempfile',
     'datetime', 'subprocess', 'urllib.request', 'urllib.error',
 ]
 

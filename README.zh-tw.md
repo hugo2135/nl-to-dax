@@ -45,6 +45,7 @@
 
 1. 把整個 `nl-to-dax/` 目錄放進 Claude 會讀取的 skill 路徑（專案內的 `.claude/skills/nl-to-dax/` 或使用者層級的 `~/.claude/skills/nl-to-dax/`）
 2. 複製 `nl-to-dax/config/site_domain.json.example` 為 `nl-to-dax/config/site_domain.json`，將 `site_domain` 欄位填入申請程式（PBI Credential Server）的實際網域（例如 `nl-to-dax.example.com`，不含 `https://` 前綴）
+3. *（選用，啟用自動更新）* 複製 `nl-to-dax/config/update_source.json.example` 為 `nl-to-dax/config/update_source.json`，填入 `repo_url`——也就是這份 skill 的發佈倉庫（SSH 或 HTTPS 皆可，看你本機 git 憑證怎麼設定）。沒設定的話，版本檢查與自動更新都會靜默略過。
 
 ---
 
@@ -82,12 +83,14 @@ nl-to-dax/
 │   ├── SKILL.md                  # Skill 執行指令（Claude 讀取）
 │   ├── VERSION                   # 目前版號（major.build，例如 0.1）
 │   ├── config/
-│   │   └── site_domain.json.example  # 申請程式網域範本，安裝時複製為 site_domain.json 並填入實際網域
+│   │   ├── site_domain.json.example  # 申請程式網域範本，安裝時複製為 site_domain.json 並填入實際網域
+│   │   └── update_source.json.example # 自動更新的來源倉庫，複製為 update_source.json 並填入 repo_url
 │   └── scripts/
 │       └── shared/
 │           ├── preflight.py            # 啟動前置檢查：一次回傳 Python 環境／版本更新／查詢書籤
 │           ├── bookmarks.py            # 查詢書籤的存取（list/show/save/delete）與環境持久性偵測
-│           ├── check_update.py         # 選用：每日版本檢查（比對遠端 git tag），與認證機制無關
+│           ├── check_update.py         # 每日版本檢查（比對遠端 git tag），與認證機制無關
+│           ├── update_skill.py          # 把本機 skill 更新到指定版本；不會動到你的設定與書籤
 │           └── execute_dax_query.py    # 在記憶體中把一次性 ticket 兌換成 Token，再對 Power BI executeQueries API 送查詢
 └── README.md
 ```
@@ -145,7 +148,13 @@ Skill 自動完成：MCP 認證檢查（`list_models`）→ 模型選擇與取�
 
 ## 版本更新
 
-Skill 每日最多向遠端倉庫查詢一次最新版號（比對 git tag），若偵測到有更新版本會簡短提醒一次，不會中斷查詢流程。
+Skill 每日最多向遠端倉庫查詢一次最新版號（比對 git tag）。偵測到新版本時會告知並**詢問是否要更新**——不會自作主張直接更新，因為那等於在 skill 執行到一半改寫它自己的檔案。
+
+同意後會執行 `update_skill.py`：淺層 clone 目標 tag，只覆蓋程式碼（`SKILL.md`、`VERSION`、`scripts/`、以及 `config/*.example`）。**你自己的檔案一律不動**：`site_domain.json`、`update_source.json`、`bookmarks.json`，實際上 `config/` 底下任何非 `.example` 的 `.json` 都受保護。覆蓋前會先備份，過程中任一步失敗就整批還原，不會讓 skill 停在「更新到一半」的壞掉狀態。
+
+新版本要**下次對話**才會生效——目前這次對話已經載入舊版指令。
+
+需要在 `config/update_source.json` 填好 `repo_url`（見「安裝 Skill」）。沒設定的話，檢查與更新都會靜默略過。
 
 ---
 

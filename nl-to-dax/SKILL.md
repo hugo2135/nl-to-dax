@@ -40,7 +40,19 @@ python "<SKILL_ROOT>/scripts/shared/preflight.py"
   - `missing_modules` 非空（極少見，通常代表 Python 安裝不完整或為精簡版）：告知使用者缺少哪些標準函式庫模組，建議重新安裝完整版 Python，流程到此停止。
 - `gated = false` → 繼續下一步。
 
-`update` 純粹是提醒性質：`checked = false` 或該區段回傳 `{"ok": false, ...}` 時靜默略過；`update_available = true` 時在稍後的回覆中簡短提醒一次即可，不中斷流程。（是否保留這個版本檢查機制，或改用未來 plugin marketplace 自帶的機制，屬於獨立的開放問題，見 CLAUDE.md 開發計畫。）
+`update` 不中斷主流程：
+- `checked = false`（未設定更新來源、沒有網路、沒有 git、遠端尚無 tag）或該區段回傳 `{"ok": false, ...}` → 靜默略過，不告知使用者。
+- `update_available = true` → 在稍後的回覆中提醒一次，並**詢問是否要現在更新**，例如：「偵測到新版本 v{latest_version}（目前 v{current_version}），要現在更新嗎？更新只覆蓋程式碼，不會動到您的設定與書籤。」
+  - 使用者說要 → 執行：
+
+    python "<SKILL_ROOT>/scripts/shared/update_skill.py"
+
+    回傳 JSON：{"success": true, "version_before": "...", "version_after": "...", "target": "v1.1", "files_updated": N}
+    成功後告知使用者：「已更新至 v{version_after}。**新版本要下次對話才會生效**——目前這次對話已經載入舊版的指令，會照舊版流程繼續。」然後正常往下走，不要重新開始。
+    失敗時回報 stderr 錯誤訊息即可；更新失敗不影響查詢，繼續走主流程。
+  - 使用者說不要、或沒有明確回應 → 直接往下走，本次對話不要再問第二次。
+
+**不要在使用者沒有同意的情況下自動執行更新**——那會在 skill 執行到一半改寫它自己的檔案。
 
 -1.2 讀取申請程式網域
 用 Read 工具讀取 <SKILL_ROOT>/config/site_domain.json 的 `site_domain` 欄位，取得申請程式網域，以下稱 <SITE_DOMAIN>。檔案不存在代表部署未完成，這不是使用者能自行處理的事：僅告知使用者「請聯繫管理員協助」，流程到此停止。

@@ -4,7 +4,19 @@
 > 此檔案的版號必須與 `nl-to-dax/VERSION` 一致。
 > 本檔案記錄 `mcp-oauth` 分支的歷史；`solo`／`server-token` 各自維護自己的版本線。
 
-## v1.0（目前版本）— 2026-08-10
+## v1.1（目前版本）— 2026-08-10
+
+### 自動更新
+- 新增 `config/update_source.json`（範本 `update_source.json.example`）：來源倉庫網址改為部署設定，不再寫死在 `check_update.py` 裡——同一份 skill 可能發佈自 GitHub、自架 Gitea 或內部鏡像
+- 新增 `update_skill.py`：淺層 clone 指定 tag 後覆蓋本機程式碼。部署方式是複製目錄、通常不是 git working tree，因此不能用 `git pull`
+- **只覆蓋程式碼**（`SKILL.md`／`VERSION`／`scripts/`／`config/*.example`）；`config/` 底下任何非 `.example` 的 `.json` 一律視為使用者資料，絕不覆蓋或刪除
+- 覆蓋前先備份，任一步失敗即整批還原，不會停在「更新到一半」的壞掉狀態
+- **必須經使用者同意才執行**：偵測到新版只提示並詢問，不自動更新——那等於在 skill 執行到一半改寫自己的檔案。更新後新版指令要下次對話才生效
+- 未設定 `repo_url` 時，版本檢查與更新皆靜默略過，不影響主流程
+
+---
+
+## v1.0 — 2026-08-10
 
 首個以 MCP connector + OAuth 為認證基礎的版本，與先前 `PBI_MASK_KEY` 架構完全不相容。
 

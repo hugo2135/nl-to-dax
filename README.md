@@ -49,6 +49,7 @@ The following describes **this branch (`mcp-oauth`)**'s installation and usage. 
 
 1. Place the entire `nl-to-dax/` directory in a path Claude reads for skills (project-level `.claude/skills/nl-to-dax/` or user-level `~/.claude/skills/nl-to-dax/`)
 2. Copy `nl-to-dax/config/site_domain.json.example` to `nl-to-dax/config/site_domain.json`, and fill in the `site_domain` field with the credential application server's actual domain (e.g. `nl-to-dax.example.com`, no `https://` prefix)
+3. *(Optional, enables self-update)* Copy `nl-to-dax/config/update_source.json.example` to `nl-to-dax/config/update_source.json` and fill in `repo_url` — the repository this skill is distributed from (SSH or HTTPS, whichever your local git credentials are set up for). Without it, version checking and self-update are silently skipped.
 
 ---
 
@@ -86,12 +87,14 @@ nl-to-dax/
 │   ├── SKILL.md                  # Skill instructions (read by Claude)
 │   ├── VERSION                   # Current version (major.build, e.g. 0.1)
 │   ├── config/
-│   │   └── site_domain.json.example  # Credential-server domain template; copy to site_domain.json on install and fill in the actual domain
+│   │   ├── site_domain.json.example  # Credential-server domain template; copy to site_domain.json on install and fill in the actual domain
+│   │   └── update_source.json.example # Source repository for self-update; copy to update_source.json and fill in repo_url
 │   └── scripts/
 │       └── shared/
 │           ├── preflight.py            # Startup pre-check: returns Python env, update status, and bookmarks in one call
 │           ├── bookmarks.py            # Query-bookmark storage (list/show/save/delete) and storage-persistence detection
-│           ├── check_update.py         # Optional: daily version check (compares remote git tags), unrelated to authentication
+│           ├── check_update.py         # Daily version check (compares remote git tags), unrelated to authentication
+│           ├── update_skill.py          # Updates the local skill to a given version; never touches your config or bookmarks
 │           └── execute_dax_query.py    # Redeems the one-time ticket for a token in memory, then calls the Power BI executeQueries API
 └── README.md
 ```
@@ -149,7 +152,13 @@ The second option exists because saved DAX is frozen: if it was generated with a
 
 ## Updates
 
-The skill queries the remote repository for the latest version tag at most once a day (comparing git tags); if a newer version is detected, it gives a brief one-time reminder without interrupting the query flow.
+The skill checks the remote repository for a newer version tag at most once a day. When one is found it tells you and offers to update — it never updates on its own, since that would rewrite the skill's own files mid-run.
+
+Accepting runs `update_skill.py`, which shallow-clones the target tag and overwrites only code (`SKILL.md`, `VERSION`, `scripts/`, and `config/*.example`). **Your own files are never touched**: `site_domain.json`, `update_source.json`, `bookmarks.json`, and in fact any non-`.example` `.json` under `config/`. Files are backed up before being overwritten and restored automatically if anything fails, so a failed update can't leave the skill half-broken.
+
+The new version takes effect in your **next** conversation — the current one already has the old instructions loaded.
+
+Requires `repo_url` in `config/update_source.json` (see Installation). Without it, both the check and the update are silently skipped.
 
 ---
 

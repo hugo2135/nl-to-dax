@@ -6,6 +6,7 @@ pbi_query/
 gen_test_jwt.py
 nl-to-dax/config/settings.local.json
 nl-to-dax/config/update_check.json
+nl-to-dax/config/update_source.json
 nl-to-dax/config/bookmarks.json
 nl-to-dax/config/env_probe.json
 pbi_config/*
