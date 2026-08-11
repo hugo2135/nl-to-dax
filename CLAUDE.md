@@ -88,12 +88,22 @@ git push origin v0.2
 - **執行前警告 Token 過期**（比對 `expires_at`），過期時印 stderr 警告後仍嘗試執行；若 Power BI 回 401 則提示重新執行 `fetch_credential.py`
 - **輸出 CSV 前先確保目錄存在**（`os.makedirs(..., exist_ok=True)`），避免路徑不存在導致靜默失敗
 
+### 已定案的設計決策（不需要再重新討論）
+- **查詢書籤永久留在本機**（`<SKILL_ROOT>/config/bookmarks.json`），不做 Server 端書籤 API。
+  理由不是伺服器資源——書籤只有幾 KB、寫入頻率極低，成本相較於每次對話都要傳的
+  `get_model_detail`（實測約 95KB）根本是雜訊——而是**職責歸屬**：篩選規則／查詢模式／
+  欄位別名是管理員定義的業務規則，必須集中治理；「我存的查詢」則是個人工作狀態，
+  放本機才符合歸屬，同時不新增失效點（Server 掛掉書籤照常可用），也不讓 Server
+  累積「誰在追什麼問題」這類隱私資訊。
+  **代價是永久性的、不是待補缺口**：Claude Apps 的沙盒每次對話清空，該環境下書籤只在
+  當次對話有效。SKILL.md 與 README 已明確告知並建議改用 Claude Code CLI／VS Code
+  擴充功能長期保存，措辭不需再改。
+
 ### 敏感值傳遞規則
-- **絕對不要把 access token 之類的機密當作命令列參數傳給腳本**，一律透過「腳本讀取後立即刪除」的暫存檔傳遞：
-  - 命令列內容同機的其他行程可以讀取（Windows `wmic process get commandline`／工作管理員的命令列欄位；Linux `/proc/<pid>/cmdline`），也可能被寫進 shell 歷史檔
-  - 呼叫端 UI 會完整顯示待執行指令，近 2000 字元的 JWT 會把使用者版面灌爆
-  - 刪除必須放在 `try/finally`，確保任何錯誤路徑（查詢失敗、DAX 檔不存在、token 檔為空）都不會讓機密殘留在磁碟上
-- 這只是縱深防禦，不是根治：token 仍會經過 Claude 的對話上下文。要讓 raw token 完全不進上下文，需 Server 端改發一次性、短效期的 ticket，由腳本自行兌換
+- **access token 絕對不能經過 Claude**，一律由腳本自己去換、自己用：`mcp-oauth` 是拿一次性 `ticket` 交給 `execute_dax_query.py`，由腳本自行 POST `redeem_url` 換成 token 後直接呼叫 Power BI；`solo`／`server-token` 則是腳本自己讀本機憑證檔換 token。Claude 只負責傳遞 ticket 或觸發腳本，從不接觸 token 本身
+  - 曾經試過「Claude 呼叫 tool 拿到 token → 寫成暫存檔 → 傳路徑給腳本」，看起來 token 沒進命令列，但 `Write` 工具的內容一樣會完整顯示在呼叫端 UI 與對話上下文——沒有解決根本問題，只要 token 回到 Claude 手上就一定會被顯示
+  - 低價值、短效、單次使用的憑證（例如 300 秒過期的 ticket）當命令列參數傳沒問題，外流時已無利用價值
+  - 若腳本仍需暫存憑證到磁碟（例如舊架構的 mask key），刪除必須放在 `try/finally`，確保任何錯誤路徑都不會讓機密殘留
 
 ### 跨平台相容性
 - **不使用 shell wrapper**：所有腳本一律由 Claude 直接以 `python`（Windows）／`python3`（macOS/Linux）呼叫，全部放在 `scripts/shared/`，不再維護 `scripts/windows|macos|linux/` 的 `.ps1`/`.sh` 觸發腳本。
@@ -113,21 +123,24 @@ git push origin v0.2
 
 ### mcp-oauth 分支開放問題
 
-> 此分支已完成 SKILL.md 骨架重構，本機憑證管理腳本（`check_setup.py`、`fetch_credential.py`、`fetch_model.py`、`pbi_api_client.py`、`model_overview.py`、`skill_settings.py`）與對應 trigger 腳本已移除。後端已提供正式的 MCP 工具定義（`list_models`、`get_model_detail`、`get_powerbi_token`，見下方架構說明），SKILL.md 已依此更新，不再是暫定介面。
+> 此分支已完成 SKILL.md 骨架重構，本機憑證管理腳本（`check_setup.py`、`fetch_credential.py`、`fetch_model.py`、`pbi_api_client.py`、`model_overview.py`、`skill_settings.py`）與對應 trigger 腳本已移除。後端已提供正式的 MCP 工具定義（`list_models`、`get_model_detail`、`get_query_ticket`，見下方架構說明），SKILL.md 已依此更新，不再是暫定介面。
 
-**架構確認（跟最初假設不同，記錄避免之後又搞錯）**：Server 端**不提供執行查詢的 MCP 工具**。`get_powerbi_token(pbi_config_id)` 只回傳 access token，DAX 查詢是 Skill 自己拿這個 token 直接對 Power BI 的 `executeQueries` REST API 發送請求（新增 `scripts/shared/execute_dax_query.py` 處理），不經過 nl-to-dax 的 Server——這是刻意設計，避免多使用者併發查詢時卡住 Server 的同步呼叫。Access token 只能存在於單次對話的上下文中快取（Skill 自己在推理層面記住，同一個 `pbi_config_id` 未過期就複用，不用每次查詢都重新呼叫 `get_powerbi_token`），絕對不可寫入本機檔案跨對話持久化。
+**架構確認（跟最初假設不同，記錄避免之後又搞錯）**：Server 端**不提供執行查詢的 MCP 工具**。DAX 查詢是 Skill 自己直接對 Power BI 的 `executeQueries` REST API 發送請求（`scripts/shared/execute_dax_query.py`），不經過 nl-to-dax 的 Server——這是刻意設計，避免多使用者併發查詢時卡住 Server 的同步呼叫。
+
+**查詢授權採一次性 ticket**（2026-08 上線，取代最初的 `get_powerbi_token` 直接回傳 token 設計）：`get_query_ticket(pbi_config_id)` 回傳單次使用、預設 300 秒效期的 `ticket` 與 `redeem_url`；**兌換成 access token 的動作在 `execute_dax_query.py` 內部完成**，token 只存在該行程的記憶體，不進對話上下文、不進命令列、不落地。
+- **token 快取指引與舊設計相反**：ticket 單次使用，每次查詢前都要重新呼叫 `get_query_ticket`，不快取。
+- **過期重試是必要路徑，不是選配**：Bash 執行前的權限確認等待會算進 ticket 效期，使用者稍微離開就可能過期。腳本兌換回 401 時輸出 `"ticket_expired": true`，Skill 據此重新取票後重跑一次（上限一次）。SKILL.md 因此要求**先寫 `dax_query.txt` 再取票**，重試時不需重新生成 DAX。
+- Network egress 需放行兩個網域：`api.powerbi.com`（執行查詢）與申請程式網域（兌換 ticket）。
 
 已解決：
-- ~~`list_models` 回傳範圍~~：確認為輕量清單（`pbi_config_id`/`pbi_config_name`/`model_version`/`model_description`/`table_count`），完整 `relationships`/`tables`/`workspace_id`/`dataset_id` 由獨立的 `get_model_detail(pbi_config_id)` 取得。
+- ~~`list_models` 回傳範圍~~：確認為輕量清單（`pbi_config_id`/`pbi_config_name`/`model_version`/`model_description`/`table_count`/`query_modes`），完整 `relationships`/`tables`/`workspace_id`/`dataset_id`/`filters`/`column_aliases` 由獨立的 `get_model_detail(pbi_config_id, mode_id?)` 取得。
 - ~~`server-token` 分支要不要保留當 fallback~~：後端已明確表示新舊 skill 一律統一改用 MCP，**不維護兩條並行路徑**，`server-token` 分支維持原規劃（過渡用，之後合併回來取代）。
+- ~~`get_powerbi_token` → `get_query_ticket` 遷移~~：已於 2026-08 實測驗證完整路徑——`get_powerbi_token` 確認回 `Unknown tool`（MCP connector 需重新連線才會生效）、`get_query_ticket` 回傳格式與 SKILL.md 描述一致、`execute_dax_query.py` 兌換並執行查詢成功、重複使用同一張 ticket 正確觸發 `ticket_expired`。
+- ~~`query_modes`/`column_aliases` 實際驗證~~：已於 2026-08 實測 `list_models`/`get_model_detail` 確認兩個欄位皆已回傳（目前既有模型未設定 query_modes/column_aliases 內容，但欄位結構已到位，純增量邏輯不受影響）。
 
 仍待確認：
 - **查詢結果是否落地成本機 CSV 檔**：SKILL.md 目前預設維持落地（`pbi_query/query_result.csv`，由 Claude 用 Write 工具寫入），因為在 Claude Code 下寫檔案對使用者有意義；若之後主要在 Claude Apps sandbox 環境使用，寫了也是對話結束就消失，落不落地差異不大，需要重新評估。
 - **`check_update.py`（Skill 版本檢查）去留**：維持現有比對 git tag 的機制，還是之後打包成 plugin 後改用 marketplace 自帶的版本機制？跟認證機制無關。
-- ~~Server 端書籤儲存 API~~：**已定案不做，書籤永久留在本機** `<SKILL_ROOT>/config/bookmarks.json`。理由不是伺服器資源（書籤只有幾 KB、寫入頻率極低，成本可忽略），而是職責歸屬：篩選規則／查詢模式／欄位別名是管理員定義的業務規則，必須集中治理；但「我存的查詢」是個人工作狀態，放本機才符合歸屬，也不新增失效點（Server 掛掉書籤照常可用）、不讓 Server 累積「誰在追什麼問題」這類隱私資訊。
-  **需接受的代價是永久性的、不是待補缺口**：Claude Apps 的沙盒每次對話清空，該環境下書籤只在當次對話有效。SKILL.md 與 README 已明確告知使用者此限制並建議改用 Claude Code CLI／VS Code 擴充功能長期保存，措辭不需再改。
-- **`query_modes`/`column_aliases` 實際驗證**：SKILL.md 已依整合指南寫入這兩個欄位的處理邏輯（純增量，欄位缺席時自動略過），但 2026-08-10 實測目前部署的 MCP server 尚未回傳這兩個欄位，待 Server 部署後需實際驗證一次。
-- ~~實際串接測試~~：已於 2026-08-10 用真實 MCP connector 實測 `list_models`/`get_model_detail`/`get_powerbi_token`，回傳格式與 SKILL.md 描述一致。
 
 ### 與申請程式的 API 合約
 
