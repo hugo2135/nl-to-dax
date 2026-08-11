@@ -150,7 +150,7 @@ Skill 自動完成：MCP 認證檢查（`list_models`）→ 模型選擇與取�
 
 Skill 每日最多向遠端倉庫查詢一次最新版號（比對 git tag）。偵測到新版本時會告知並**詢問是否要更新**——不會自作主張直接更新，因為那等於在 skill 執行到一半改寫它自己的檔案。
 
-同意後會執行 `update_skill.py`：淺層 clone 目標 tag，只覆蓋程式碼（`SKILL.md`、`VERSION`、`scripts/`、以及 `config/*.example`）。**你自己的檔案一律不動**：`site_domain.json`、`update_source.json`、`bookmarks.json`，實際上 `config/` 底下任何非 `.example` 的 `.json` 都受保護。覆蓋前會先備份，過程中任一步失敗就整批還原，不會讓 skill 停在「更新到一半」的壞掉狀態。
+同意後會執行 `update_skill.py`：淺層 clone 目標 tag，只覆蓋程式碼（`SKILL.md`、`VERSION`、`scripts/`、以及 `config/*.example`）。`scripts/` 與 `filters/` 採完整鏡像——上游刪掉的檔案本機也會刪掉，避免歷次改版的殘骸一直累積。**你自己的檔案一律不動**：`site_domain.json`、`update_source.json`、`bookmarks.json`，實際上 `config/` 底下任何非 `.example` 的 `.json` 都受保護。覆蓋或刪除前都會先備份，過程中任一步失敗就整批還原，不會讓 skill 停在「更新到一半」的壞掉狀態。
 
 新版本要**下次對話**才會生效——目前這次對話已經載入舊版指令。
 

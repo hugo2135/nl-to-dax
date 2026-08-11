@@ -109,9 +109,37 @@ def _collect_updates(source_skill_dir: str) -> list:
     return updates
 
 
-def apply_update(source_skill_dir: str, updates: list, backup_dir: str) -> None:
-    """先備份再覆蓋；任一步失敗即整批還原。"""
+def _collect_removals(updates: list) -> list:
+    """列出本機有、但新版已經沒有的程式碼檔案。
+
+    `scripts/`／`filters/` 完全來自倉庫、不含使用者資料，因此做成完整鏡像：
+    上游刪掉的檔案本機也要刪掉。否則歷次改版的殘骸會一直累積——例如舊版的
+    check_python_env.py、skill_settings.py、fetch_model.py 在更新後仍留著，
+    造成新舊模組混在同一個目錄的狀態。
+
+    `config/` 不在此列：那裡有使用者資料，只增不刪。
+    """
+    keep = set(updates)
+    removals = []
+    for entry in ("scripts", "filters"):
+        base = os.path.join(SKILL_ROOT, entry)
+        if not os.path.isdir(base):
+            continue
+        for root, _dirs, files in os.walk(base):
+            for name in files:
+                full = os.path.join(root, name)
+                rel = os.path.relpath(full, SKILL_ROOT).replace('\\', '/')
+                if name.endswith('.pyc') or '__pycache__' in rel:
+                    removals.append(rel)      # 順手清掉編譯快取，避免載到舊模組
+                elif rel not in keep:
+                    removals.append(rel)
+    return removals
+
+
+def apply_update(source_skill_dir: str, updates: list, removals: list, backup_dir: str) -> None:
+    """先備份再覆蓋／刪除；任一步失敗即整批還原。"""
     applied = []
+    removed = []
     try:
         for rel in updates:
             dst = os.path.join(SKILL_ROOT, rel)
@@ -122,13 +150,43 @@ def apply_update(source_skill_dir: str, updates: list, backup_dir: str) -> None:
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy2(os.path.join(source_skill_dir, rel), dst)
             applied.append(rel)
+
+        for rel in removals:
+            dst = os.path.join(SKILL_ROOT, rel)
+            if not os.path.isfile(dst):
+                continue
+            bak = os.path.join(backup_dir, rel)
+            os.makedirs(os.path.dirname(bak), exist_ok=True)
+            shutil.copy2(dst, bak)
+            os.remove(dst)
+            removed.append(rel)
     except Exception:
         print("更新失敗，正在還原...", file=sys.stderr)
-        for rel in applied:
+        for rel in applied + removed:
             bak = os.path.join(backup_dir, rel)
             if os.path.isfile(bak):
-                shutil.copy2(bak, os.path.join(SKILL_ROOT, rel))
+                dst = os.path.join(SKILL_ROOT, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy2(bak, dst)
         raise
+
+
+def _prune_empty_dirs() -> None:
+    """清掉 scripts/ 底下更新後變空的目錄（例如舊版的 windows/macos/linux、__pycache__）。
+
+    只刪真的空的目錄，所以不會弄丟任何東西。在檔案都處理完、確定不會再回滾之後才執行。
+    """
+    base = os.path.join(SKILL_ROOT, "scripts")
+    if not os.path.isdir(base):
+        return
+    for root, dirs, _files in os.walk(base, topdown=False):
+        for name in dirs:
+            path = os.path.join(root, name)
+            try:
+                if not os.listdir(path):
+                    os.rmdir(path)
+            except OSError:
+                pass
 
 
 def main() -> None:
@@ -164,10 +222,12 @@ def main() -> None:
         updates = _collect_updates(source_skill_dir)
         if not updates:
             raise RuntimeError("來源倉庫沒有可更新的檔案，請確認倉庫內容是否正確")
+        removals = _collect_removals(updates)
 
-        print(f"更新 {len(updates)} 個檔案...", file=sys.stderr)
-        apply_update(source_skill_dir, updates, backup_dir)
+        print(f"更新 {len(updates)} 個檔案，移除 {len(removals)} 個舊檔...", file=sys.stderr)
+        apply_update(source_skill_dir, updates, removals, backup_dir)
 
+    _prune_empty_dirs()
     after = check_update._read_current_version(SKILL_ROOT)
 
     # 版本已變，強制下次重新檢查，不要讓今天的舊快取蓋掉結果
@@ -182,6 +242,7 @@ def main() -> None:
         "version_after": after,
         "target": target,
         "files_updated": len(updates),
+        "files_removed": len(removals),
     }, ensure_ascii=False))
 
 
