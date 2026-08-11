@@ -1,6 +1,6 @@
 ---
 name: nl-to-dax
-description: 根據使用者以中文或英文描述的自然語言需求，透過多階段推理生成適用於 Power BI REST API 的專用 DAX 查詢語法，透過 nl-to-dax MCP connector 取得語意模型與 Access Token 後直接查詢 Power BI 並輸出結果。當使用者想要查詢 Power BI 語意模型中的資料、要求產生 DAX 查詢、或提到「查訂單」「查銷量」等業務資料查詢需求時，使用此 skill。
+description: 根據使用者以中文或英文描述的自然語言需求，透過多階段推理生成適用於 Power BI REST API 的專用 DAX 查詢語法，透過 nl-to-dax MCP connector 取得語意模型與一次性查詢授權後直接查詢 Power BI 並輸出結果。當使用者想要查詢 Power BI 語意模型中的資料、要求產生 DAX 查詢、或提到「查訂單」「查銷量」等業務資料查詢需求時，使用此 skill。
 ---
 
 # Natural Language to DAX Skill（mcp-oauth 分支）
@@ -286,40 +286,45 @@ Step 5：執行 Power BI REST API 查詢
 
 > 查詢結果是否落地成本機 CSV 檔案是開放問題（見 CLAUDE.md 開發計畫），本節先以「維持落地」為預設行為，之後依團隊決定調整。
 
-Server 只提供 `get_powerbi_token` 換發 token，DAX 查詢由 Skill 自己直接對 Power BI 的 `executeQueries` API 發送（架構原因見 CLAUDE.md 開發計畫）。
+Server 只發一次性 ticket，DAX 查詢由 Skill 自己直接對 Power BI 的 `executeQueries` API 發送（架構原因見 CLAUDE.md 開發計畫）。
 
-5.1 取得 Access Token（對話內快取，避免重複呼叫）
-檢查本次對話中，選定的 `pbi_config_id` 是否已經有尚未過期的 access token（記住上次取得的時間點與 `expires_in`，預留 1-2 分鐘安全邊界）：
-- 有效 → 直接複用，跳到 5.2
-- 沒有或已過期 → 呼叫 MCP 工具 `get_powerbi_token(pbi_config_id)`，取得新的 `access_token`/`expires_in`，記住取得時間
+**核心規則：ticket 可以進上下文，access token 不行。** 兌換動作發生在 `execute_dax_query.py` 內部，token 只存在該行程的記憶體中——不進對話上下文、不進命令列、不落地成檔案。
 
-若 `get_powerbi_token` 失敗 ：向使用者說明「Access Token 取得失敗，請聯繫管理員處理」，停止流程。不要逐字暴露 tool error 的原始錯誤內容給一般使用者（可能包含基礎設施細節），僅在使用者主動要求查看技術細節時才提供。
+5.1 寫入 DAX 查詢
+使用 Write 工具，將 Step 4 產生的完整 DAX 查詢語法（不含程式碼區塊標記）寫入使用者目前工作目錄下的 `pbi_query/dax_query.txt`（使用絕對路徑）。
 
-**此 access token 只能存在於本次對話的上下文中，絕對不可以寫入任何本機檔案跨對話持久化。**（5.2 會短暫寫入一個 token 檔給腳本讀取，但那個檔案由腳本讀取後立即刪除，不構成跨對話保留。）
+**先寫檔、後拿 ticket**，順序不要顛倒——理由見 5.2。
 
-5.2 執行查詢
-使用 Write 工具寫入兩個檔案（皆使用絕對路徑，位於使用者目前工作目錄下）：
+5.2 取得一次性 ticket
+呼叫 MCP 工具 `get_query_ticket(pbi_config_id)`，回傳：
+{"ticket": "...", "redeem_url": "https://.../api/ticket/redeem", "expires_in": 300}
 
-1. `pbi_query/dax_query.txt`——Step 4 產生的完整 DAX 查詢語法（不含程式碼區塊標記）
-2. `pbi_query/.access_token`——5.1 取得的 access token 純文字內容（不含引號、不含 `Bearer ` 前綴、不加任何換行以外的修飾）
+**不要快取 ticket，每次要執行查詢前都重新呼叫這支工具。** ticket 是單次使用的，用過即失效——這跟舊版「對話內快取 access token」的作法完全相反。
 
-**access token 一律透過這個檔案傳遞，絕對不要當作命令列參數傳入。** 原因有二：命令列內容同機的其他行程可以讀取（Windows 的 `wmic process get commandline`、工作管理員的命令列欄位；Linux 的 `/proc/<pid>/cmdline`），而且可能被寫進 shell 歷史檔；此外呼叫端 UI 會完整顯示待執行指令，近 2000 字元的 JWT 會把使用者的版面灌爆。`execute_dax_query.py` 讀取後會立即刪除該檔案（即使查詢失敗也一定刪除）。
+**在真正要執行查詢的前一刻才呼叫。** 所有澄清、選項確認、DAX 生成都完成之後再拿；ticket 預設只有 300 秒效期（以回傳的 `expires_in` 為準，不要寫死），中間若還要跟使用者來回確認就會過期。
 
-執行以下指令（`<SKILL_ROOT>` 替換為實際路徑，`workspace_id`/`dataset_id` 來自「模型選擇流程」步驟 6 呼叫 `get_model_detail` 的回傳）：
+若 `get_query_ticket` 失敗：向使用者說明「查詢授權取得失敗，請聯繫管理員處理」，停止流程。不要逐字暴露 tool error 的原始錯誤內容給一般使用者（可能包含基礎設施細節），僅在使用者主動要求查看技術細節時才提供。
 
-python "<SKILL_ROOT>/scripts/shared/execute_dax_query.py" "<pbi_query/.access_token 的絕對路徑>" "<workspace_id>" "<dataset_id>" "<dax_query.txt 的絕對路徑>" "<pbi_query/query_result.csv 的絕對路徑>"
+5.3 執行查詢
+執行以下指令（`<SKILL_ROOT>` 替換為實際路徑；`redeem_url` 用 5.2 回傳的值，不要自己組；`workspace_id`/`dataset_id` 來自「模型選擇流程」步驟 6 呼叫 `get_model_detail` 的回傳）：
+
+python "<SKILL_ROOT>/scripts/shared/execute_dax_query.py" "<ticket>" "<redeem_url>" "<workspace_id>" "<dataset_id>" "<dax_query.txt 的絕對路徑>" "<pbi_query/query_result.csv 的絕對路徑>"
+
+ticket 當命令列參數傳是安全的（單次使用 + 短效期），**但 access token 絕對不可以**——它由腳本自己兌換，不經過你的手。
 
 回傳 JSON 格式：{"success": true, "row_count": N, "csv_path": "..."}
 
-若執行失敗：將 stderr 的錯誤訊息回報給使用者（此腳本執行在使用者自己的環境中，不像 Step -1 的 MCP tool error 可能包含伺服器端基礎設施細節，可以完整呈現），停止流程。若錯誤訊息類似 `Tunnel connection failed: 403 Forbidden` 或其他連線被擋的訊息，很可能是 Claude 執行環境的網路白名單沒有放行 `api.powerbi.com`（常見於 Claude Apps 的 code execution 沙盒），提醒使用者依 README 安裝教學到 Settings → Capabilities → Network egress 加入白名單。
+**若回傳帶 `"ticket_expired": true`**：代表 ticket 在執行前就過期了。這在正常使用中會發生——Bash 執行前的權限確認提示，那段等待時間也算在 ticket 效期內，使用者離開座位一下就會過期。此時**直接回到 5.2 重新呼叫 `get_query_ticket` 取得新 ticket，再執行一次 5.3 即可，不需要詢問使用者、也不需要重新生成 DAX**（`dax_query.txt` 還在，這正是 5.1 要先寫檔的原因）。重試以**一次**為限，若第二次仍然過期才回報使用者。
 
-5.3 回報結果
+若回傳其他失敗：將 stderr 的錯誤訊息回報給使用者（此腳本執行在使用者自己的環境中，不像 Step -1 的 MCP tool error 可能包含伺服器端基礎設施細節，可以完整呈現），停止流程。若錯誤訊息類似 `Tunnel connection failed: 403 Forbidden` 或其他連線被擋的訊息，很可能是 Claude 執行環境的網路白名單沒有放行——**改用 ticket 後需要放行兩個網域**：`api.powerbi.com`（執行查詢）與申請程式網域（兌換 ticket）。常見於 Claude Apps 的 code execution 沙盒，提醒使用者依 README 安裝教學到 Settings → Capabilities → Network egress 加入白名單。
+
+5.4 回報結果
 若執行成功，向使用者回報：
 - 查詢成功，共 N 筆資料
 - 結果已輸出至：`pbi_query/query_result.csv`
 - 詢問使用者：「是否需要 Claude 讀取並解讀此 CSV 資料？」
 
-5.4 詢問是否儲存為書籤
+5.5 詢問是否儲存為書籤
 僅在查詢**成功**時詢問（失敗或零筆結果不問，那代表這個 DAX 還沒被驗證過）。若本次查詢是直接沿用既有書籤執行的，也不需要再問。
 
 詢問：「要把這次的查詢存成書籤，下次直接重跑嗎？」

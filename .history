@@ -1,39 +1,48 @@
 # 版本歷史
 
-## v3（目前版本）— 2026-06-22
+> 版號規則見 CLAUDE.md：`breaking` → major 升版、build 歸零；`feat`/`fix`/`refactor` → build 遞增。
+> 此檔案的版號必須與 `nl-to-dax/VERSION` 一致。
+> 本檔案記錄 `mcp-oauth` 分支的歷史；`solo`／`server-token` 各自維護自己的版本線。
 
-### 架構調整
-- 新增 `filters/` 篩選設定檔系統：透過 JSON 設定檔定義業務規則篩選，支援 `alwaysApply`（常態啟用）與 `overrideDefaults`（覆蓋模式）兩種行為
-- 新增三份預置篩選設定檔：`default_order`（預設訂單篩選）、`investigation`（排查模式）、`refund_analysis`（退費分析）
-- DAX 生成步驟（Step 4）整合篩選設定檔的輸出結果，自動將業務規則嵌入查詢
+## v1.0（目前版本）— 2026-08-10
 
-### 語意模型處理
-- `chunk_model.py` 新增雙格式自動偵測：同時支援原始 Power BI JSON（`clientDataModel.dataModel`）與簡化語意模型格式
-- 新增 `_find_workspace_root()` 機制：透過往上尋找 `.claude/` 目錄定位工作區根目錄，解除腳本對固定相對路徑的依賴
+首個以 MCP connector + OAuth 為認證基礎的版本，與先前 `PBI_MASK_KEY` 架構完全不相容。
 
-### API 客戶端
-- `pbi_api_client.py` 新增 JWT 憑證驗證：使用 HS256 簽名機制（`PBI_MASK_KEY`）驗證設定檔完整性，防止憑證遭篡改
-- 新增 JWT 過期時間檢查（`exp` 欄位），過期時提示使用者申請更新
-- CSV 轉換新增相容性處理：支援 API 回傳不含 `columns` 陣列的格式（如 `EVALUATE ROW()` 查詢）
+### 認證架構（breaking）
+- 移除 `PBI_MASK_KEY` 與所有本機憑證管理：不再有 `settings.local.json`、`fetch_credential.py`、`fetch_model.py`、`check_setup.py`、`skill_settings.py`、`pbi_api_client.py`、`model_overview.py`
+- 改由 MCP connector 提供 `list_models`／`get_model_detail`／`get_query_ticket` 三支工具，Skill 不接觸任何 Azure AD 憑證
+- 語意模型結構與篩選規則改為即時向 Server 取得，不再有本機 `pbi_config/` 快取與每日強制同步機制
+- 篩選設定檔從本機 `filters/*.json` 改為 `get_model_detail` 回傳的 `filters` 欄位，由管理員於申請程式集中維護；比對演算法不變
 
-### 跨平台腳本
-- 完整支援 Windows（PowerShell）、macOS（bash）、Linux（bash）三平台的觸發腳本
-- Windows 的 `trigger_pbi_api.ps1` 新增自動尋找工作區根目錄邏輯，確保 `pbi_query/` 輸出路徑正確
+### 查詢授權：一次性 ticket（breaking）
+- `get_powerbi_token` 已被 Server 移除，改為 `get_query_ticket`：回傳單次使用、預設 300 秒效期的 ticket 與 `redeem_url`
+- `execute_dax_query.py` 自行以 ticket 兌換 access token，**token 全程只存在該行程記憶體**——不進對話上下文、不進命令列、不落地成檔案
+- Token 快取指引反轉：ticket 單次使用，每次查詢前都要重新取得，不快取
+- 兌換回 401 時輸出 `"ticket_expired": true`，由 Skill 重新取票後重跑一次（Bash 權限確認的等待時間會算進 ticket 效期，過期屬正常情況）
+- Network egress 需放行兩個網域：`api.powerbi.com` 與申請程式網域
+
+### 查詢書籤
+- 新增 `bookmarks.py`：查詢成功後可命名存檔，下次執行時列於模型概覽最下方
+- 同時保存 DAX 與原始自然語言需求，重用時可選「直接執行」或「用原需求重新生成」，後者可避開書籤 DAX 寫死日期、或管理員調整過規則導致的過時結果
+- 依模型分組，避免列出跑不動的跨模型查詢
+- 環境持久性偵測：探針檔跨天存活為正面證明，首次執行退回路徑判斷；沙盒環境仍可儲存但會明確告知僅單次對話有效
+
+### 啟動檢查與跨平台
+- 新增 `preflight.py`：Python 環境、版本更新、查詢書籤三項檢查併為單一指令，SKILL.md 相應精簡
+- 版本閘門置於其餘 `import` 之前，確保舊版 Python 得到的是「請升級」而非 traceback；各區段獨立容錯
+- **移除全部 `trigger_*.ps1`／`.sh` 觸發腳本**：Windows 用戶端版 PowerShell ExecutionPolicy 預設 `Restricted` 會直接擋掉未簽署的 `.ps1`，wrapper 反而製造了直接呼叫 Python 不會有的失敗點；改由 Claude 直接以 `python`／`python3` 呼叫
+
+### 其他
+- 支援 `query_modes`（多查詢模式時先詢問使用者）與 `column_aliases`（生成 DAX 前把口語用詞轉為實際欄位值），皆為純增量——Server 尚未回傳這些欄位時自動略過
+- 補上不支援 OAuth connector 介面的 AI App 引導流程（改用申請程式簽發的 MCP token 手動設定）
 
 ---
 
-## v2（歷史版本）
+## v3 — 2026-06-22（`PBI_MASK_KEY` 架構，已淘汰）
 
-### 主要變更
-- 將語意模型處理邏輯從 Skill 指令中抽離，獨立為 `chunk_model.py` Python 腳本
-- 新增 Power BI REST API 直接執行模式（模式二）
-- 新增 `pbi_api_client.py`，封裝 Azure AD OAuth 取得 token 及 DAX 查詢呼叫
+> 此版本屬於舊的版號體系（v1/v2/v3），與現行 `Major.Build` 規則不同；`mcp-oauth` 分支自 v1.0 起重新起算。
 
----
-
-## v1（歷史版本）
-
-### 初始版本
-- 基本自然語言轉 DAX 功能
-- 需使用者手動提供表結構資訊
-- 僅支援 DAX 語法輸出（無 API 執行能力）
+- `filters/` 篩選設定檔系統：以 JSON 定義業務規則，支援 `alwaysApply` 與 `overrideDefaults`
+- `chunk_model.py` 雙格式自動偵測：原始 Power BI JSON 與簡化語意模型格式
+- `pbi_api_client.py` JWT 憑證驗證（HS256 + `PBI_MASK_KEY`）與過期檢查
+- Windows／macOS／Linux 三平台觸發腳本

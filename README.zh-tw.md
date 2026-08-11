@@ -26,7 +26,7 @@
 | 智慧篩選套用 | 依據需求關鍵字自動比對篩選設定檔，套用至 DAX 查詢 |
 | 關聯驗證 | 自動驗證資料表間的關聯有效性，缺口時主動發問 |
 | DAX 生成 | 輸出符合 Power BI REST API 規格的完整查詢語法（含 `EVALUATE`） |
-| API 執行 | 用 MCP 取得的 Access Token，直接對 Power BI REST API 發送查詢；Token 僅存在單次對話中，不落地、不跨對話持久化 |
+| API 執行 | 透過 MCP 取得一次性短效 ticket，由查詢腳本自行兌換成 Access Token 後直接對 Power BI REST API 發送查詢；Token 不進對話、不進命令列、不落地 |
 | 查詢書籤 | 查詢成功後可命名存檔，下次執行時列在模型概覽最下方，可直接重跑或用原需求重新生成 |
 
 ---
@@ -37,7 +37,7 @@
 - 已連接 nl-to-dax 的 MCP connector（Settings → Connectors）
 - Python 3.9+（僅使用標準函式庫，無需安裝第三方套件）。流程中走 MCP 的部分不需要 Python，但執行查詢與書籤功能需要——Skill 會在最開始就檢查，而不是等到最後一步才失敗
 - Git（僅供選用的 Skill 版本檢查功能使用；未安裝或無法連線時會靜默略過，不影響主要功能）
-- **若在 Claude Apps 中執行**：其 code execution 沙盒預設會擋未知網域的對外連線，需自行到 Settings → Capabilities → Network egress 把 `api.powerbi.com` 加入白名單，否則 Step 5 執行查詢時會收到類似 `Tunnel connection failed: 403 Forbidden` 的錯誤（這不影響 MCP connector 本身，只影響直接呼叫 Power BI REST API 的部分）
+- **若在 Claude Apps 中執行**：其 code execution 沙盒預設會擋未知網域的對外連線，需自行到 Settings → Capabilities → Network egress **同時**加入兩個網域：`api.powerbi.com`（執行 DAX 查詢）與申請程式網域（兌換 ticket）。少放行任一個都會收到類似 `Tunnel connection failed: 403 Forbidden` 的錯誤；MCP connector 本身仍會正常運作（不走沙盒網路），因此很容易誤判成憑證問題
 
 ---
 
@@ -88,7 +88,7 @@ nl-to-dax/
 │           ├── preflight.py            # 啟動前置檢查：一次回傳 Python 環境／版本更新／查詢書籤
 │           ├── bookmarks.py            # 查詢書籤的存取（list/show/save/delete）與環境持久性偵測
 │           ├── check_update.py         # 選用：每日版本檢查（比對遠端 git tag），與認證機制無關
-│           └── execute_dax_query.py    # 用 MCP 取得的 Access Token，直接對 Power BI executeQueries API 送查詢
+│           └── execute_dax_query.py    # 在記憶體中把一次性 ticket 兌換成 Token，再對 Power BI executeQueries API 送查詢
 └── README.md
 ```
 
@@ -116,7 +116,7 @@ nl-to-dax/
 範例：列出各縣市的本月訂單數量與總金額，依縣市排序
 ```
 
-Skill 自動完成：MCP 認證檢查（`list_models`）→ 模型選擇與取得完整結構（`get_model_detail`）→ 模型概覽展示 → DAX 生成 → 取得 Access Token（`get_powerbi_token`，同一對話內快取複用）→ 直接對 Power BI 執行查詢 → 輸出結果。
+Skill 自動完成：MCP 認證檢查（`list_models`）→ 模型選擇與取得完整結構（`get_model_detail`）→ 模型概覽展示 → DAX 生成 → 取得一次性 ticket（`get_query_ticket`，每次查詢都重新取得、不快取）→ 腳本自行兌換並直接對 Power BI 執行查詢 → 輸出結果。
 
 ---
 
@@ -151,7 +151,7 @@ Skill 每日最多向遠端倉庫查詢一次最新版號（比對 git tag），
 
 ## 注意事項
 
-- Skill 不持有 Azure AD 密鑰等底層憑證；查詢用的 Access Token 由 `get_powerbi_token` 取得後僅存在單次對話的上下文中，絕不跨對話持久化
-- Token 是透過一個「腳本讀取後立即刪除」的檔案交給查詢腳本（即使查詢失敗也保證刪除），不走命令列參數——命令列內容同機其他行程可讀（Windows `wmic process get commandline`、Linux `/proc/<pid>/cmdline`），也可能被寫進 shell 歷史檔。這是多一層防護而非根治：token 仍會經過對話上下文，要完全避免需由 Server 端改發一次性 ticket
+- Skill 不持有 Azure AD 密鑰等底層憑證。進入對話上下文的只有一次性 ticket（預設 300 秒效期）；真正的 Access Token 由 `execute_dax_query.py` 自行兌換，全程只存在該行程的記憶體中
+- 傳給查詢腳本的是 ticket 而不是 token。ticket 單次使用、預設 300 秒失效，就算出現在命令列或對話紀錄裡也幾乎沒有利用價值；真正的 Access Token 從兌換到使用都只在腳本行程內，不寫檔、不進命令列
 - 語意模型與查詢結果皆為即時取得，管理員異動使用者的已分配模型時不會有本機快取過期的問題
-- Server 端不執行查詢，只換發 Access Token；DAX 查詢由 Skill 用 `execute_dax_query.py` 直接對 Power BI REST API 發送請求，避免多使用者併發查詢卡住 Server
+- Server 端不執行查詢，只發一次性 ticket；DAX 查詢由 Skill 用 `execute_dax_query.py` 直接對 Power BI REST API 發送請求，避免多使用者併發查詢卡住 Server

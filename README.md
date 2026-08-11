@@ -26,7 +26,7 @@ The following describes **this branch (`mcp-oauth`)**'s installation and usage. 
 | Smart filter application | Matches request keywords against filter rules and applies them to the DAX query |
 | Relationship validation | Automatically validates table relationships; asks the user when there's a gap |
 | DAX generation | Emits complete, REST-API-compliant queries (including `EVALUATE`) |
-| API execution | Sends queries directly to the Power BI REST API using the MCP-issued access token; the token exists only within a single conversation — never persisted, never carried across conversations |
+| API execution | Obtains a single-use, short-lived ticket via MCP; the query script redeems it for an access token in its own memory and calls the Power BI REST API directly. The token never enters the conversation, the command line, or disk |
 | Query bookmarks | Save a successful query under a name; it's listed at the bottom of the model overview next time, ready to re-run directly or regenerate from the original request |
 
 ---
@@ -37,7 +37,11 @@ The following describes **this branch (`mcp-oauth`)**'s installation and usage. 
 - The nl-to-dax MCP connector added under Settings → Connectors
 - Python 3.9+ (standard library only, no third-party packages). The MCP half of the flow doesn't need it, but query execution and bookmarks do — the skill checks this up front rather than failing at the last step
 - Git (optional; used only for the skill's version-check feature, unrelated to authentication; silently skipped if unavailable or offline)
-- **If running in Claude Apps**: its code execution sandbox blocks outbound connections to unknown domains by default. Go to Settings → Capabilities → Network egress and allow `api.powerbi.com` — otherwise Step 5's query execution fails with an error like `Tunnel connection failed: 403 Forbidden` (this doesn't affect the MCP connector itself, only the direct Power BI REST API call).
+- **If running in Claude Apps**: its code execution sandbox blocks outbound connections to unknown domains by default. Go to Settings → Capabilities → Network egress and allow **both**:
+  - `api.powerbi.com` — executing the DAX query
+  - your credential server's domain — redeeming the query ticket
+
+  Missing either produces an error like `Tunnel connection failed: 403 Forbidden`. Note the MCP connector itself still works (it doesn't go through the sandbox network), which makes this easy to misdiagnose as a credential problem.
 
 ---
 
@@ -88,7 +92,7 @@ nl-to-dax/
 │           ├── preflight.py            # Startup pre-check: returns Python env, update status, and bookmarks in one call
 │           ├── bookmarks.py            # Query-bookmark storage (list/show/save/delete) and storage-persistence detection
 │           ├── check_update.py         # Optional: daily version check (compares remote git tags), unrelated to authentication
-│           └── execute_dax_query.py    # Sends the query directly to the Power BI executeQueries API using the MCP-issued access token
+│           └── execute_dax_query.py    # Redeems the one-time ticket for a token in memory, then calls the Power BI executeQueries API
 └── README.md
 ```
 
@@ -116,7 +120,7 @@ Type `/nl-to-dax` in Claude and describe the data you need (Chinese or English):
 Example: list monthly order count and total amount by city, sorted by city
 ```
 
-The skill automatically runs: MCP auth check (`list_models`) → model selection and full structure retrieval (`get_model_detail`) → model overview → DAX generation → access token acquisition (`get_powerbi_token`, cached within the same conversation) → direct query execution against Power BI → results output.
+The skill automatically runs: MCP auth check (`list_models`) → model selection and full structure retrieval (`get_model_detail`) → model overview → DAX generation → one-time ticket (`get_query_ticket`, fetched fresh for every query, never cached) → the script redeems it and queries Power BI directly → results output.
 
 ---
 
@@ -151,7 +155,7 @@ The skill queries the remote repository for the latest version tag at most once 
 
 ## Notes
 
-- The skill holds no underlying credentials such as Azure AD secrets; the access token obtained via `get_powerbi_token` lives only in the current conversation and is never persisted across conversations
+- The skill holds no underlying credentials such as Azure AD secrets. What reaches the conversation is only a single-use ticket (default 300s TTL); the access token itself is redeemed inside `execute_dax_query.py` and never leaves that process
 - The token is handed to the query script through a file that the script deletes the moment it reads it (guaranteed even when the query fails), never as a command-line argument — command lines are readable by other processes on the same machine (`wmic process get commandline` on Windows, `/proc/<pid>/cmdline` on Linux) and can end up in shell history. Note this is defense in depth, not a complete fix: the token still passes through the conversation context, which only a server-side one-time-ticket scheme could avoid
 - Semantic models and query results are both fetched in real time; there's no local-cache staleness issue when admins change a user's assigned models
-- The Server does not execute queries — it only issues access tokens; DAX queries are sent directly to the Power BI REST API by the skill via `execute_dax_query.py`, so concurrent queries from multiple users can't block the Server
+- The Server does not execute queries — it only issues tickets; DAX queries are sent directly to the Power BI REST API by the skill via `execute_dax_query.py`, so concurrent queries from multiple users can't block the Server
